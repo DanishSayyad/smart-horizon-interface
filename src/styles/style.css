@@ -30,15 +30,17 @@
   outline: none;
 }
 
-/* 3D Canvas HUD overlay for Predicted Error title */
+/* 3D Canvas HUD overlay for Predicted Error title & telemetry */
 .canvas-hud {
   position: absolute;
   top: 12px;
   left: 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 12px;
   font-family: "Courier New", "Lucida Console", Monaco, monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: bold;
   letter-spacing: 0.5px;
   color: #1a985b;
@@ -53,6 +55,16 @@
 
 .canvas-hud__title {
   text-transform: uppercase;
+}
+
+.canvas-hud__scale {
+  color: #f6ff00;
+  font-size: 11px;
+}
+
+.canvas-hud__coords {
+  color: #38bdf8;
+  font-size: 11px;
 }
 
 /* Download Result Button */
@@ -92,3 +104,180 @@ button.download-btn:disabled {
 .inference-status--error {
   color: #ff4d4f;
 }
+
+/* ==========================================================================
+   Timeline Slider Styling (Bottom Panel)
+   ========================================================================== */
+.timeline-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 14px;
+  gap: 14px;
+  box-sizing: border-box;
+}
+
+.timeline-play-btn {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 2px solid #1a985b;
+  background: #012919;
+  color: #1a985b;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.timeline-play-btn:hover,
+.timeline-play-btn:focus-visible {
+  background: rgba(26, 152, 91, 0.25);
+  border-color: #f6ff00;
+  color: #f6ff00;
+}
+
+.timeline-track-wrapper {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+}
+
+.timeline-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #1a985b;
+  font-family: "Courier New", "Lucida Console", Monaco, monospace;
+  white-space: nowrap;
+}
+
+.timeline-left-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-timestamp {
+  font-weight: bold;
+  color: #1a985b;
+}
+
+.timeline-badge {
+  font-size: 10px;
+  color: #f6ff00;
+  opacity: 0.9;
+}
+
+.timeline-errors {
+  display: flex;
+  gap: 10px;
+  color: #38bdf8;
+  font-size: 11px;
+}
+
+.timeline-hint {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.timeline-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(26, 152, 91, 0.3);
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+
+.timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f6ff00;
+  border: 2px solid #012919;
+  box-shadow: 0 0 8px #f6ff00;
+  cursor: pointer;
+}
+
+.timeline-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f6ff00;
+  border: 2px solid #012919;
+  box-shadow: 0 0 8px #f6ff00;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Track 1 / Track 2 Selector Row (Right Column Top)
+   ========================================================================== */
+.track-selector-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 52px;
+  border: 4px solid #1a985b;
+  margin-bottom: 22px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.track-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #1a985b;
+  font-family: "Courier New", "Lucida Console", Monaco, monospace;
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  user-select: none;
+}
+
+/* Vertical divider between the two boxes */
+.track-box:first-child {
+  border-right: 4px solid #1a985b;
+}
+
+/* Inactive / unlit track */
+.track-box:not(.track-box--active) {
+  opacity: 0.45;
+  color: #1a985b;
+  background: transparent;
+}
+
+.track-box:not(.track-box--active):hover,
+.track-box:not(.track-box--active):focus-visible {
+  opacity: 0.8;
+  background: rgba(26, 152, 91, 0.15);
+}
+
+/* Active / lit track */
+.track-box--active {
+  opacity: 1;
+  background: rgba(26, 152, 91, 0.35);
+  color: #f6ff00;
+  box-shadow: inset 0 0 14px rgba(26, 152, 91, 0.5), 0 0 8px rgba(246, 255, 0, 0.3);
+}
+

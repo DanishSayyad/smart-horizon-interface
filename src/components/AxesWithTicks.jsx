@@ -5,7 +5,7 @@ import { useMemo } from 'react';
  * rendered with halved thickness and standing block tick marks (single line perpendicular to axis).
  *
  * - Axis radius: 0.0065 (halved thickness)
- * - Tick radius: 0.004 (halved thickness)
+ * - Tick radius: 0.004 (scaled proportionally when steps are large)
  * - X Axis ticks: standing vertically along Y
  * - Z Axis ticks: standing vertically along Y
  * - Y Axis ticks: standing perpendicular along X
@@ -14,8 +14,8 @@ function AxesWithTicks({ sphereRadius = 1.9, steps = 7, color = '#e5e7eb' }) {
   const safeSteps = Math.max(1, Math.floor(steps));
   const unitSize = sphereRadius / safeSteps;
   const axisRadius = 0.0065;
-  const tickRadius = 0.004;
-  const tickLength = Math.max(0.03, Math.min(0.065, unitSize * 0.3));
+  const tickRadius = Math.max(0.0016, Math.min(0.004, unitSize * 0.1));
+  const baseTickLength = Math.max(0.018, Math.min(0.055, unitSize * 0.45));
   const fullDiameter = sphereRadius * 2;
 
   // Generate step indices: [1, 2, ..., steps]
@@ -36,6 +36,9 @@ function AxesWithTicks({ sphereRadius = 1.9, steps = 7, color = '#e5e7eb' }) {
         {/* Standing vertical unit marks (along Y) on +X and -X */}
         {tickIndices.map((i) => {
           const dist = i * unitSize;
+          const isMajor = safeSteps > 20 && i % 5 === 0;
+          const tickLength = isMajor ? baseTickLength * 1.5 : baseTickLength;
+
           return (
             <group key={`ticks-x-${i}`}>
               {/* +X standing tick */}
@@ -64,6 +67,9 @@ function AxesWithTicks({ sphereRadius = 1.9, steps = 7, color = '#e5e7eb' }) {
         {/* Perpendicular unit marks (along X) on +Y and -Y */}
         {tickIndices.map((i) => {
           const dist = i * unitSize;
+          const isMajor = safeSteps > 20 && i % 5 === 0;
+          const tickLength = isMajor ? baseTickLength * 1.5 : baseTickLength;
+
           return (
             <group key={`ticks-y-${i}`}>
               {/* +Y tick */}
@@ -92,6 +98,9 @@ function AxesWithTicks({ sphereRadius = 1.9, steps = 7, color = '#e5e7eb' }) {
         {/* Standing vertical unit marks (along Y) on +Z and -Z */}
         {tickIndices.map((i) => {
           const dist = i * unitSize;
+          const isMajor = safeSteps > 20 && i % 5 === 0;
+          const tickLength = isMajor ? baseTickLength * 1.5 : baseTickLength;
+
           return (
             <group key={`ticks-z-${i}`}>
               {/* +Z standing tick */}

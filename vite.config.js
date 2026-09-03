@@ -8,8 +8,16 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/predict': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if (res.writeHead) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Inference backend unavailable on port 8000' }));
+            }
+          });
+        },
       },
     },
   },

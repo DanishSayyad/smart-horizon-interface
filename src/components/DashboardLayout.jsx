@@ -3,6 +3,7 @@ import MapModal from './MapModal';
 import Panel from './Panel';
 import SatelliteMap from './SatelliteMap';
 import SphereScene from './SphereScene';
+import { parseCSVToColumns } from '../utils/csvParser';
 
 function DashboardLayout() {
   const fileInputRef = useRef(null);
@@ -12,17 +13,89 @@ function DashboardLayout() {
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [address, setAddress] = useState('Select a point on the satellite map.');
+  const [scaleSteps] = useState(7);
+  const [resultCsv, setResultCsv] = useState(null);
+  const [csvData, setCsvData] = useState(null);
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [inferenceStatus, setInferenceStatus] = useState('');
 
   function openFilePicker() {
     fileInputRef.current?.click();
   }
 
-  function handleFileChange(event) {
+  async function handleFileChange(event) {
     const selectedFile = event.target.files?.[0];
 
     if (selectedFile) {
       setFileName(selectedFile.name);
+      setIsPredicting(true);
+      setInferenceStatus('Predicting…');
+
+      try {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        let responseText = '';
+        try {
+          const response = await fetch('/predict', {
+            method: 'POST',
+            body: formData,
+          });
+          if (response.ok) {
+            responseText = await response.text();
+          } else {
+            throw new Error(`Server status: ${response.status}`);
+          }
+        } catch {
+          // Direct fallback to port 8000
+          const directResponse = await fetch('http://localhost:8000/predict', {
+            method: 'POST',
+            body: formData,
+          });
+          if (!directResponse.ok) {
+            throw new Error(`Server status: ${directResponse.status}`);
+          }
+          responseText = await directResponse.text();
+        }
+
+        // Store returned CSV in background
+        setResultCsv(responseText);
+
+        // Parse column arrays for 3D animations
+        const parsed = parseCSVToColumns(responseText);
+        setCsvData(parsed);
+
+        // Expose on window for easy access/scripting
+        if (typeof window !== 'undefined') {
+          window.__SMART_HORIZON_CSV_COLUMNS__ = parsed.columns;
+          window.__SMART_HORIZON_RAW_CSV__ = responseText;
+        }
+
+        setInferenceStatus(`Ready (${parsed.rowCount} rows)`);
+      } catch (err) {
+        console.error('Inference request failed:', err);
+        setInferenceStatus('Inference failed (check port 8000)');
+      } finally {
+        setIsPredicting(false);
+      }
     }
+  }
+
+  function handleDownloadResult() {
+    if (!resultCsv) return;
+    const blob = new Blob([resultCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const downloadName =
+      fileName && fileName !== 'No CSV selected'
+        ? `${fileName.replace(/\.csv$/i, '')}_predicted.csv`
+        : 'predicted_result.csv';
+    link.href = url;
+    link.setAttribute('download', downloadName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   const openMap = useCallback(() => {
@@ -75,6 +148,15 @@ function DashboardLayout() {
         </div>
 
         <p className="file-name">File name: {fileName}</p>
+        {inferenceStatus && (
+          <p
+            className={`inference-status${
+              inferenceStatus.includes('failed') ? ' inference-status--error' : ''
+            }`}
+          >
+            [{inferenceStatus}]
+          </p>
+        )}
 
         <div className="controls-row" aria-label="File controls">
           <label className="control control--short select-control">
@@ -84,7 +166,15 @@ function DashboardLayout() {
               <option>GEO</option>
             </select>
           </label>
-          <Panel className="control control--wide" label="File selector" />
+          <button
+            type="button"
+            className="control control--wide download-btn"
+            onClick={handleDownloadResult}
+            disabled={!resultCsv || isPredicting}
+            title={resultCsv ? 'Download returned CSV' : 'No result yet. Upload a CSV first.'}
+          >
+            {isPredicting ? 'Predicting…' : 'Download Result'}
+          </button>
         </div>
 
         <section
@@ -110,7 +200,7 @@ function DashboardLayout() {
 
       <section className="content" aria-label="Primary content">
         <Panel className="main-panel" label="Primary visualisation">
-          <SphereScene />
+          <SphereScene steps={scaleSteps} csvData={csvData} />
         </Panel>
         <Panel className="bottom-panel" label="Timeline visualisation" />
       </section>

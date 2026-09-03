@@ -30,33 +30,65 @@
   outline: none;
 }
 
-/* Coordinate axis labels */
-.axis-label {
+/* 3D Canvas HUD overlay for Predicted Error title */
+.canvas-hud {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  display: flex;
+  align-items: center;
   font-family: "Courier New", "Lucida Console", Monaco, monospace;
   font-size: 13px;
-  font-weight: 700;
-  padding: 2px 7px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  color: #1a985b;
+  background: rgba(1, 41, 25, 0.85);
+  border: 1px solid rgba(26, 152, 91, 0.4);
+  padding: 6px 12px;
   border-radius: 4px;
-  line-height: 1;
   pointer-events: none;
   user-select: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 5;
 }
 
-.axis-label--x {
+.canvas-hud__title {
+  text-transform: uppercase;
+}
+
+/* Download Result Button */
+button.download-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #1a985b;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+button.download-btn:hover:not(:disabled),
+button.download-btn:focus-visible:not(:disabled) {
+  background: rgba(26, 152, 91, 0.2);
+}
+
+button.download-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+/* Inference status indicator */
+.inference-status {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #1a985b;
+  font-family: inherit;
+  line-height: 1.2;
+}
+
+.inference-status--error {
   color: #ff4d4f;
-  background: rgba(255, 77, 79, 0.15);
-  border: 1px solid #ff4d4f;
-}
-
-.axis-label--y {
-  color: #52c41a;
-  background: rgba(82, 196, 26, 0.15);
-  border: 1px solid #52c41a;
-}
-
-.axis-label--z {
-  color: #1677ff;
-  background: rgba(22, 119, 255, 0.15);
-  border: 1px solid #1677ff;
 }

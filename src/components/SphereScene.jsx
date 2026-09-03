@@ -1,16 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import GizmoAxes from './GizmoAxes';
+import AxesWithTicks from './AxesWithTicks';
+import CenterCube from './CenterCube';
 
 /**
- * Ensures the sphere takes up almost all (~90%) of the canvas viewport,
- * dynamically adapting when the window or panel is resized.
+ * Fixed non-rotatable camera framed responsively so the sphere takes up ~90%
+ * of the canvas along the limiting viewport dimension.
  */
-function ResponsiveCamera({ radius = 1.9 }) {
+function FixedResponsiveCamera({ radius = 1.9 }) {
   const { camera, size } = useThree();
-  const initializedRef = useRef(false);
 
   useEffect(() => {
     if (!size.width || !size.height) return;
@@ -25,17 +24,10 @@ function ResponsiveCamera({ radius = 1.9 }) {
     const reqDistHorizontal = diameter / (2 * Math.tan(vFovRad / 2) * aspect * targetCoverage);
     const targetDistance = Math.max(reqDistVertical, reqDistHorizontal);
 
-    if (!initializedRef.current) {
-      // Set an isometric-like perspective view direction so X, Y, and Z are all clearly visible
-      const initialDirection = new THREE.Vector3(2.2, 1.8, 3.2).normalize();
-      camera.position.copy(initialDirection.multiplyScalar(targetDistance));
-      camera.lookAt(0, 0, 0);
-      initializedRef.current = true;
-    } else {
-      // Preserve current user viewing angle and adjust distance to keep the sphere framed
-      const dir = camera.position.clone().normalize();
-      camera.position.copy(dir.multiplyScalar(targetDistance));
-    }
+    // Fixed perspective viewing angle (isometric-like, showing X, Y, and Z clearly)
+    const viewDirection = new THREE.Vector3(2.2, 1.8, 3.2).normalize();
+    camera.position.copy(viewDirection.multiplyScalar(targetDistance));
+    camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
   }, [camera, size.width, size.height, radius]);
 
@@ -43,44 +35,48 @@ function ResponsiveCamera({ radius = 1.9 }) {
 }
 
 /**
- * 3D Scene Component rendered in the middle primary panel.
- * Contains:
- * - A grey translucent sphere (20% opacity) filling almost the entire canvas
- * - A 3-axis gizmo (X: Red, Y: Green, Z: Blue) centered inside the sphere at the origin
- * - OrbitControls for user interaction (orbit, pan, zoom)
- * - Canvas with alpha transparency to allow CSS background customization via style.css
+ * 3D Scene Component rendered in the middle primary panel:
+ * - Non-rotatable view
+ * - Translucent grey sphere (20% opacity) taking up almost all of the canvas
+ * - Non-colorful axes in all 6 directions with halved thickness and standing block tick marks
+ * - The number of steps from origin to sphere boundary defaults to 7 and changes dynamically
+ * - A center cube defaulted to 1 unit in size (1.0 * (radius / steps))
+ * - "Predicted Error" title banner overlay at the top
+ * - Customizable background color via style.css
  */
-function SphereScene() {
+function SphereScene({ steps = 7, csvData = null }) {
   const sphereRadius = 1.9;
-  const axisLength = 1.5;
+  const safeSteps = Math.max(1, Math.floor(steps));
 
   return (
-    <div className="sphere-canvas-container" aria-label="3D sphere visualization">
+    <div className="sphere-canvas-container" aria-label="Predicted Error 3D visualization">
+      {/* Top overlay title */}
+      <div className="canvas-hud" aria-label="Visualisation title">
+        <span className="canvas-hud__title">Predicted Error</span>
+      </div>
+
       <Canvas
         camera={{ position: [2.2, 1.8, 3.2], fov: 45 }}
         gl={{ alpha: true, antialias: true }}
       >
-        <ResponsiveCamera radius={sphereRadius} />
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.05}
-          minDistance={2.1}
-          maxDistance={15}
-        />
+        <FixedResponsiveCamera radius={sphereRadius} />
 
         {/* Scene Lighting */}
         <ambientLight intensity={0.9} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} />
         <directionalLight position={[-5, -4, -5]} intensity={0.4} />
 
-        {/* 3-Axis Gizmo inside the sphere, centered at (0, 0, 0) */}
-        <GizmoAxes axisLength={axisLength} radius={sphereRadius} />
+        {/* 6-direction non-colorful axes with halved thickness and standing block tick marks */}
+        <AxesWithTicks sphereRadius={sphereRadius} steps={safeSteps} />
 
-        {/* Grey translucent sphere with 20% opacity enclosing the gizmo */}
+        {/* Center cube defaulted to 1 unit in size */}
+        <CenterCube sphereRadius={sphereRadius} steps={safeSteps} unitMultiplier={1.0} />
+
+        {/* Non-rotatable translucent grey sphere (20% opacity) */}
         <mesh renderOrder={10}>
           <sphereGeometry args={[sphereRadius, 64, 64]} />
           <meshStandardMaterial
-            color="#888888"
+            color="#808080"
             transparent
             opacity={0.2}
             roughness={0.25}

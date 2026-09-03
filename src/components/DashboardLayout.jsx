@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import MapModal from './MapModal';
 import Panel from './Panel';
 import SatelliteMap from './SatelliteMap';
+import SphereScene from './SphereScene';
 
 function DashboardLayout() {
   const fileInputRef = useRef(null);
@@ -108,7 +109,9 @@ function DashboardLayout() {
       </aside>
 
       <section className="content" aria-label="Primary content">
-        <Panel className="main-panel" label="Primary visualisation" />
+        <Panel className="main-panel" label="Primary visualisation">
+          <SphereScene />
+        </Panel>
         <Panel className="bottom-panel" label="Timeline visualisation" />
       </section>
 

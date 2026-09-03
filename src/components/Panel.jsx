@@ -1,7 +1,8 @@
-function Panel({ className = '', label }) {
+function Panel({ className = '', label, children, ...props }) {
   return (
-    <section className={`panel ${className}`} aria-label={label}>
+    <section className={`panel ${className}`} aria-label={label} {...props}>
       {label && <span className="sr-only">{label}</span>}
+      {children}
     </section>
   );
 }

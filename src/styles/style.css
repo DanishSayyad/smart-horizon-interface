@@ -5,10 +5,9 @@
 :root {
   /* --------------------------------------------------------------------------
      Canvas Background Color
-     Customize the background of the 3D viewport here.
-     Examples: #012919 (default deep green), #000000 (space black), #0f172a, etc.
+     Deep space dark blue
      -------------------------------------------------------------------------- */
-  --canvas-bg: #012919;
+  --canvas-bg: #04081a;
 }
 
 /* 3D Canvas container styling */
@@ -18,7 +17,7 @@
   min-height: 0;
   flex: 1;
   position: relative;
-  background-color: var(--canvas-bg, #012919);
+  background-color: var(--canvas-bg, #04081a);
   overflow: hidden;
 }
 
@@ -44,7 +43,7 @@
   font-weight: bold;
   letter-spacing: 0.5px;
   color: #1a985b;
-  background: rgba(1, 41, 25, 0.85);
+  background: rgba(4, 8, 26, 0.88);
   border: 1px solid rgba(26, 152, 91, 0.4);
   padding: 6px 12px;
   border-radius: 4px;
@@ -57,9 +56,19 @@
   text-transform: uppercase;
 }
 
-.canvas-hud__scale {
-  color: #f6ff00;
+.canvas-hud__legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 11px;
+}
+
+.hud-tag--green {
+  color: #10b981;
+}
+
+.hud-tag--red {
+  color: #ef4444;
 }
 
 .canvas-hud__coords {

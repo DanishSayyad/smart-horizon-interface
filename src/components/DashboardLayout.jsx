@@ -8,11 +8,10 @@ import TimelineSlider from './TimelineSlider';
 import {
   parseCSVToColumns,
   extractNormalizedPoints,
-  calculateSphereSteps,
   samplePointsByInterval,
 } from '../utils/csvParser';
+import { ERROR_SCALE_FACTOR } from '../config/simulation';
 
-const SPHERE_RADIUS = 1.9;
 const ANIMATION_LOOP_SECONDS = 25; // Constant loop duration across all intervals
 
 function DashboardLayout() {
@@ -163,26 +162,25 @@ function DashboardLayout() {
     return extractNormalizedPoints(csvData);
   }, [csvData]);
 
-  // Calculate dynamic sphere step count: integer(max value + 1)
-  const sphereSteps = useMemo(() => {
-    return calculateSphereSteps(allPoints);
-  }, [allPoints]);
-
   // Subsample points based on interval:
   // 15 mins: all rows | 30 mins: alternate rows | 1 hour: every 4th row | 2 hours: every 8th row
   const sampledPoints = useMemo(() => {
     return samplePointsByInterval(allPoints, interval);
   }, [allPoints, interval]);
 
-  // Build 3D spline curve and trajectory path from sampled points
+  // Build 3D spline curve and trajectory path from sampled points using ERROR_SCALE_FACTOR
   const { curve, pathPoints } = useMemo(() => {
     if (!sampledPoints.length) {
       return { curve: null, pathPoints: [] };
     }
 
-    const unitSize = SPHERE_RADIUS / sphereSteps;
     const vectors = sampledPoints.map(
-      (pt) => new THREE.Vector3(pt.x * unitSize, pt.y * unitSize, pt.z * unitSize),
+      (pt) =>
+        new THREE.Vector3(
+          (pt.x || 0) * ERROR_SCALE_FACTOR,
+          (pt.y || 0) * ERROR_SCALE_FACTOR,
+          (pt.z || 0) * ERROR_SCALE_FACTOR,
+        ),
     );
 
     if (vectors.length < 2) {
@@ -193,11 +191,11 @@ function DashboardLayout() {
     const finePath = catmullCurve.getPoints(Math.max(50, vectors.length * 5));
 
     return { curve: catmullCurve, pathPoints: finePath };
-  }, [sampledPoints, sphereSteps]);
+  }, [sampledPoints]);
 
   // Interpolate current satellite position, timestamp, and error values based on progress
   const { currentPos, currentTimestamp, currentErrors } = useMemo(() => {
-    if (!sampledPoints.length) {
+    if (!sampledPoints || !sampledPoints.length) {
       return {
         currentPos: new THREE.Vector3(0, 0, 0),
         currentTimestamp: '',
@@ -205,46 +203,59 @@ function DashboardLayout() {
       };
     }
 
+    const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+
     // 3D position along the Catmull-Rom curve
     let pos = new THREE.Vector3(0, 0, 0);
     if (curve) {
-      pos = curve.getPoint(Math.min(0.9999, Math.max(0, progress)));
-    } else {
-      const unitSize = SPHERE_RADIUS / sphereSteps;
+      pos = curve.getPoint(Math.min(0.9999, safeProgress));
+    } else if (sampledPoints[0]) {
       pos = new THREE.Vector3(
-        sampledPoints[0].x * unitSize,
-        sampledPoints[0].y * unitSize,
-        sampledPoints[0].z * unitSize,
+        (sampledPoints[0].x || 0) * ERROR_SCALE_FACTOR,
+        (sampledPoints[0].y || 0) * ERROR_SCALE_FACTOR,
+        (sampledPoints[0].z || 0) * ERROR_SCALE_FACTOR,
       );
     }
 
     // Interpolate timestamp & numeric errors
     const totalSegments = sampledPoints.length - 1;
-    let timestamp = '';
-    let errors = null;
-
     if (totalSegments <= 0) {
-      timestamp = sampledPoints[0].time;
-      errors = { x: sampledPoints[0].x, y: sampledPoints[0].y, z: sampledPoints[0].z };
-    } else {
-      const floatIndex = progress * totalSegments;
-      const lower = Math.min(Math.floor(floatIndex), totalSegments);
-      const upper = Math.min(lower + 1, totalSegments);
-      const alpha = floatIndex - lower;
-
-      const p1 = sampledPoints[lower];
-      const p2 = sampledPoints[upper];
-
-      timestamp = alpha < 0.5 ? p1.time : p2.time;
-      errors = {
-        x: p1.x + (p2.x - p1.x) * alpha,
-        y: p1.y + (p2.y - p1.y) * alpha,
-        z: p1.z + (p2.z - p1.z) * alpha,
+      const pt = sampledPoints[0];
+      return {
+        currentPos: pos,
+        currentTimestamp: pt?.time || '',
+        currentErrors: pt ? { x: pt.x || 0, y: pt.y || 0, z: pt.z || 0 } : null,
       };
     }
 
+    const floatIndex = safeProgress * totalSegments;
+    const lower = Math.max(0, Math.min(Math.floor(floatIndex) || 0, totalSegments));
+    const upper = Math.max(0, Math.min(lower + 1, totalSegments));
+    const alpha = Number.isFinite(floatIndex - lower) ? floatIndex - lower : 0;
+
+    const p1 = sampledPoints[lower] || sampledPoints[0];
+    const p2 = sampledPoints[upper] || p1;
+
+    if (!p1) {
+      return { currentPos: pos, currentTimestamp: '', currentErrors: null };
+    }
+
+    const timestamp = alpha < 0.5 ? (p1?.time || '') : (p2?.time || p1?.time || '');
+    const p1x = p1.x ?? 0;
+    const p1y = p1.y ?? 0;
+    const p1z = p1.z ?? 0;
+    const p2x = p2?.x ?? p1x;
+    const p2y = p2?.y ?? p1y;
+    const p2z = p2?.z ?? p1z;
+
+    const errors = {
+      x: p1x + (p2x - p1x) * alpha,
+      y: p1y + (p2y - p1y) * alpha,
+      z: p1z + (p2z - p1z) * alpha,
+    };
+
     return { currentPos: pos, currentTimestamp: timestamp, currentErrors: errors };
-  }, [sampledPoints, curve, progress, sphereSteps]);
+  }, [sampledPoints, curve, progress]);
 
   const openMap = useCallback(() => {
     setIsMapOpen(true);
@@ -349,11 +360,11 @@ function DashboardLayout() {
       <section className="content" aria-label="Primary content">
         <Panel className="main-panel" label="Primary visualisation">
           <SphereScene
-            steps={sphereSteps}
             currentPos={currentPos}
-            pathPoints={pathPoints}
+            curve={curve}
+            progress={progress}
+            isPlaying={isPlaying}
             currentErrors={currentErrors}
-            currentTimestamp={currentTimestamp}
           />
         </Panel>
         <Panel className="bottom-panel" label="Timeline visualisation">

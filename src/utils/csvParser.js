@@ -157,29 +157,6 @@ export function extractNormalizedPoints(parsedData) {
 }
 
 /**
- * Calculates the required sphere axis steps: integer(maximum value + 1)
- * so that the satellite cube never goes outside the sphere.
- */
-export function calculateSphereSteps(points) {
-  if (!points || !points.length) return 7;
-
-  let maxVal = 0;
-  for (const pt of points) {
-    const absX = Math.abs(pt.x || 0);
-    const absY = Math.abs(pt.y || 0);
-    const absZ = Math.abs(pt.z || 0);
-    const norm = Math.hypot(pt.x || 0, pt.y || 0, pt.z || 0);
-
-    if (absX > maxVal) maxVal = absX;
-    if (absY > maxVal) maxVal = absY;
-    if (absZ > maxVal) maxVal = absZ;
-    if (norm > maxVal) maxVal = norm;
-  }
-
-  return Math.max(1, Math.floor(maxVal + 1));
-}
-
-/**
  * Subsamples points according to the user-selected interval:
  * - 15 mins: every row (stride 1)
  * - 30 mins: alternate rows (stride 2)

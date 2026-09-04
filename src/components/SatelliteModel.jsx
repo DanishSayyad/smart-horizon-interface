@@ -51,7 +51,7 @@ function SatelliteModel({
   return (
     <group position={pos}>
       {/* Offset by -center so visual center aligns with reference cube center */}
-      <group scale={[baseScale, baseScale, baseScale]}>
+      <group scale={[baseScale, baseScale, baseScale]} rotation={[1.57, 0.4, 0]}>
         <primitive
           object={outlinedScene}
           position={[-1.3, 1.7, 3.5]}

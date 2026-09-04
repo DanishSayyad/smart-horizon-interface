@@ -96,7 +96,12 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
 
     mapInstanceRef.current = map;
 
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 50);
+
     return () => {
+      clearTimeout(timer);
       map.remove();
       mapInstanceRef.current = null;
       centerMarkerRef.current = null;

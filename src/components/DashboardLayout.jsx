@@ -7,6 +7,8 @@ import SphereScene from './SphereScene';
 import TimelineSlider from './TimelineSlider';
 import ClockErrorPhasor from './ClockErrorPhasor';
 import TriangulationMap from './TriangulationMap';
+import TriangulationGlobe from './TriangulationGlobe';
+import { XYZErrorChart, ErrorMagnitudeChart, TriangulationRadiiBars } from './Panel2ErrorCharts';
 import {
   parseCSVToColumns,
   extractNormalizedPoints,
@@ -601,15 +603,37 @@ function DashboardLayout() {
               </Panel>
             </div>
 
-            {/* Central big box (blank) */}
-            <Panel className="panel2-center-box" label="Central panel" />
+            {/* Central 3D Globe with hovering satellites & orbit speed slider */}
+            <Panel className="panel2-center-box" label="3D Satellite Constellation Globe">
+              <TriangulationGlobe />
+            </Panel>
           </div>
 
-          {/* Three blank boxes in the left bottom */}
-          <div className="panel2-bottom-row" aria-label="Bottom panels">
-            <Panel className="panel2-bottom-box" label="Bottom slot 1" />
-            <Panel className="panel2-bottom-box" label="Bottom slot 2" />
-            <Panel className="panel2-bottom-box" label="Bottom slot 3" />
+          {/* Three lower error charts in panel 2 */}
+          <div className="panel2-bottom-row" aria-label="Bottom error charts">
+            <Panel className="panel2-bottom-box" label="XYZ Error Components">
+              <XYZErrorChart
+                currentErrors={currentErrors}
+                engineOutput={engineOutput}
+                simTime={simTime}
+                isPlaying={isPlaying}
+              />
+            </Panel>
+            <Panel className="panel2-bottom-box" label="Error Magnitude">
+              <ErrorMagnitudeChart
+                currentErrors={currentErrors}
+                engineOutput={engineOutput}
+                simTime={simTime}
+                isPlaying={isPlaying}
+              />
+            </Panel>
+            <Panel className="panel2-bottom-box" label="Triangulation Radii">
+              <TriangulationRadiiBars
+                engineOutput={engineOutput}
+                simTime={simTime}
+                isPlaying={isPlaying}
+              />
+            </Panel>
           </div>
         </section>
 

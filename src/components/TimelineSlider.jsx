@@ -10,12 +10,14 @@
 function TimelineSlider({
   progress = 0,
   onSeek,
-  isPlaying = true,
+  isPlaying = false,
   onTogglePlay,
   currentTimestamp = '',
   currentErrors = null,
   totalPoints = 0,
   interval = '15 mins',
+  speed = 1,
+  onSpeedChange,
 }) {
   return (
     <div className="timeline-container" aria-label="Simulation timeline">
@@ -46,6 +48,9 @@ function TimelineSlider({
               <span>X: {currentErrors.x >= 0 ? '+' : ''}{currentErrors.x.toFixed(2)}m</span>
               <span>Y: {currentErrors.y >= 0 ? '+' : ''}{currentErrors.y.toFixed(2)}m</span>
               <span>Z: {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(2)}m</span>
+              {currentErrors.clock !== undefined && (
+                <span>CLK: {currentErrors.clock >= 0 ? '+' : ''}{currentErrors.clock.toFixed(2)}m</span>
+              )}
             </div>
           )}
 
@@ -63,6 +68,22 @@ function TimelineSlider({
           className="timeline-slider"
           aria-label="Simulation timeline slider"
         />
+      </div>
+
+      {/* Speed dropdown after slider inside timeline */}
+      <div className="timeline-speed-wrapper" title="Simulation speed multiplier">
+        <select
+          className="timeline-speed-select"
+          value={speed}
+          onChange={(e) => onSpeedChange?.(Number(e.target.value))}
+          aria-label="Simulation speed"
+        >
+          <option value={1}>1x</option>
+          <option value={2}>2x</option>
+          <option value={4}>4x</option>
+          <option value={8}>8x</option>
+          <option value={16}>16x</option>
+        </select>
       </div>
     </div>
   );

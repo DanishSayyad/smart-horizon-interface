@@ -46,6 +46,7 @@ function SphereScene({
   progress = 0,
   isPlaying = true,
   currentErrors = null,
+  formattedTimer = '00:00:00:00',
 }) {
 
   return (
@@ -64,6 +65,12 @@ function SphereScene({
             {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(1)}]m
           </span>
         )}
+      </div>
+
+      {/* Top-Right Simulation UTC Timer in dd:hh:mm:ss format */}
+      <div className="canvas-timer-hud" aria-label="Simulation timer">
+        <span className="canvas-timer-hud__label">UTC</span>
+        <span className="canvas-timer-hud__val">{formattedTimer}</span>
       </div>
 
       <Canvas
@@ -115,12 +122,13 @@ function SphereScene({
 
         {/* 3D GLTF Models wrapped in Suspense */}
         <Suspense fallback={null}>
-          {/* Massive Earth Model placed below satellites, tilted 75 deg on X, continuous spin */}
+          {/* Massive Earth Model placed below satellites, tilted 75 deg on X, pauses on isPlaying false */}
           <EarthModel
             surfaceDistance={1.2}
             radius={45.0}
             tiltXDeg={75}
             spinSpeed={0.02}
+            isPlaying={isPlaying}
           />
 
           {/* Actual Satellite: Green outlined model at origin (fixed size, never resizes on CSV input) */}

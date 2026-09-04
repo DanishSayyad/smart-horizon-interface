@@ -12,9 +12,10 @@ import * as THREE from 'three';
  */
 function EarthModel({
   surfaceDistance = 1.2, // Satellite altitude above Earth's surface
-  radius = 115.0,         // Massive planetary globe
+  radius = 200.0,         // Massive planetary globe
   tiltXDeg = 75,         // Tilt angle on X axis in degrees
   spinSpeed = 0.01,      // Continuous spin speed on its own Y axis
+  isPlaying = true,      // Pauses Earth rotation when simulation is paused
 }) {
   const spinRef = useRef(null);
   const { scene } = useGLTF('/models/earth/scene.gltf');
@@ -42,9 +43,9 @@ function EarthModel({
   // 75 degrees in radians
   const tiltXRad = THREE.MathUtils.degToRad(tiltXDeg);
 
-  // Continuous spin on its own local Y axis - won't pause ever
+  // Continuous spin on its own local Y axis - pauses when isPlaying is false
   useFrame((_, delta) => {
-    if (spinRef.current) {
+    if (isPlaying && spinRef.current) {
       spinRef.current.rotation.x -= delta * spinSpeed;
     }
   });

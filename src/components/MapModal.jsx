@@ -15,9 +15,9 @@ function MapModal({ onClose, onSelect, selectedLocation }) {
 
   return (
     <div className="map-modal-backdrop" role="presentation">
-      <section className="map-modal" role="dialog" aria-modal="true" aria-label="Select a location">
+      <section className="map-modal" role="dialog" aria-modal="true" aria-label="Select Location">
         <header className="map-modal__header">
-          <p>Select a location</p>
+          <p>Select Location</p>
           <button className="map-modal__close" type="button" onClick={onClose} aria-label="Close map">
             ×
           </button>

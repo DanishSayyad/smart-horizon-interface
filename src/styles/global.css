@@ -14,7 +14,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
   background: #012919;
   overflow: hidden;
 }
@@ -29,8 +30,11 @@ select {
   display: grid;
   grid-template-columns: 260px minmax(360px, 1fr) 232px;
   gap: 16px;
-  min-height: 100vh;
-  padding: 28px 24px 22px 28px;
+  height: 100vh;
+  max-height: 100vh;
+  padding: 20px 20px 16px 20px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .sidebar,
@@ -38,7 +42,11 @@ select {
 .right-column {
   display: flex;
   min-width: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .controls-row {
@@ -100,9 +108,46 @@ button.control:focus-visible {
   line-height: 1.2;
 }
 
+.sidebar-map-wrapper {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-panel-header {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background: rgba(26, 152, 91, 0.2);
+  border: 4px solid #1a985b;
+  border-bottom: none;
+  color: #1a985b;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-panel-header:hover,
+.sidebar-panel-header:focus-visible {
+  background: rgba(26, 152, 91, 0.35);
+  color: #f6ff00;
+}
+
+.sidebar-panel-header__icon {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
 .sidebar-panel {
-  height: 216px;
-  margin-top: 17px;
+  height: 188px;
+  margin-top: 0;
 }
 
 .map-preview {
@@ -143,12 +188,12 @@ button.control:focus-visible {
 }
 
 .status-panel {
-  min-height: 155px;
+  min-height: 80px;
   flex: 1;
-  margin-top: 16px;
-  border-radius: 10px;
+  margin-top: 10px;
+  border-radius: 8px;
   background: #73737340;
-  padding: 16px;
+  padding: 12px;
   overflow: hidden;
 }
 
@@ -170,7 +215,7 @@ button.control:focus-visible {
 }
 
 .main-panel {
-  min-height: 443px;
+  min-height: 0;
   flex: 1;
   position: relative;
   display: flex;
@@ -179,19 +224,26 @@ button.control:focus-visible {
 }
 
 .bottom-panel {
-  height: 66px;
-  margin-top: 20px;
+  height: 64px;
+  flex-shrink: 0;
+  margin-top: 12px;
 }
 
 .right-panel--top {
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .right-panel--bottom {
   min-height: 0;
   flex: 1;
-  margin-top: 22px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sr-only {

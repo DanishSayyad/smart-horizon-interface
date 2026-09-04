@@ -146,14 +146,19 @@ export function extractNormalizedPoints(parsedData) {
 
   const { timeKey, xKey, yKey, zKey, clockKey } = detectErrorColumns(parsedData.headers);
 
-  return parsedData.rows.map((row, idx) => ({
-    origIndex: idx,
-    time: String(row[timeKey] ?? `Point ${idx + 1}`),
-    x: typeof row[xKey] === 'number' ? row[xKey] : Number(row[xKey]) || 0,
-    y: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0,
-    z: typeof row[zKey] === 'number' ? row[zKey] : Number(row[zKey]) || 0,
-    clock: row[clockKey] !== undefined ? row[clockKey] : 0,
-  }));
+  return parsedData.rows.map((row, idx) => {
+    const rawTime = String(row[timeKey] ?? `Point ${idx + 1}`);
+    const timeMs = parseCsvTimestampToMs(rawTime);
+    return {
+      origIndex: idx,
+      time: rawTime,
+      timeMs: timeMs,
+      x: typeof row[xKey] === 'number' ? row[xKey] : Number(row[xKey]) || 0,
+      y: typeof row[yKey] === 'number' ? row[yKey] : Number(row[yKey]) || 0,
+      z: typeof row[zKey] === 'number' ? row[zKey] : Number(row[zKey]) || 0,
+      clock: typeof row[clockKey] === 'number' ? row[clockKey] : Number(row[clockKey]) || 0,
+    };
+  });
 }
 
 /**
@@ -179,3 +184,64 @@ export function samplePointsByInterval(allPoints, intervalString) {
 
   return allPoints.filter((_, idx) => idx % stride === 0);
 }
+
+/**
+ * Robust parsing of various date/time formats commonly seen in GNSS/satellite telemetry:
+ * - M/D/YYYY H:mm or M/D/YYYY H:mm:ss (e.g. "9/8/2025 0:11")
+ * - YYYY-MM-DD HH:mm:ss or ISO 8601 strings
+ * Returns epoch timestamp in milliseconds, or NaN if unparseable.
+ */
+export function parseCsvTimestampToMs(str) {
+  if (!str || typeof str !== 'string') return NaN;
+  const trimmed = str.trim();
+
+  // M/D/YYYY or MM/DD/YYYY H:mm[:ss]
+  const m1 = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+  if (m1) {
+    const month = parseInt(m1[1], 10);
+    const day = parseInt(m1[2], 10);
+    const year = parseInt(m1[3], 10);
+    const hour = parseInt(m1[4] || '0', 10);
+    const min = parseInt(m1[5] || '0', 10);
+    const sec = parseInt(m1[6] || '0', 10);
+    return Date.UTC(year, month - 1, day, hour, min, sec);
+  }
+
+  // YYYY-MM-DD[T| ]HH:mm[:ss]
+  const m2 = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (m2) {
+    const year = parseInt(m2[1], 10);
+    const month = parseInt(m2[2], 10);
+    const day = parseInt(m2[3], 10);
+    const hour = parseInt(m2[4] || '0', 10);
+    const min = parseInt(m2[5] || '0', 10);
+    const sec = parseInt(m2[6] || '0', 10);
+    return Date.UTC(year, month - 1, day, hour, min, sec);
+  }
+
+  // Fallback for other parseable dates containing date or time patterns
+  if (/\d{1,4}[/-]\d{1,2}[/-]\d{1,4}|\d{1,2}:\d{2}/.test(trimmed)) {
+    const fallback = Date.parse(trimmed);
+    if (Number.isFinite(fallback)) return fallback;
+  }
+
+  return NaN;
+}
+
+/**
+ * Formats an epoch millisecond timestamp as "dd:hh:mm:ss" in UTC.
+ * - dd: 2-digit day of month
+ * - hh: 2-digit 24-hour hour
+ * - mm: 2-digit minute
+ * - ss: 2-digit second
+ */
+export function formatTimestampDdhhmmss(ms) {
+  if (!Number.isFinite(ms)) return '00:00:00:00';
+  const d = new Date(ms);
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${dd}:${hh}:${mm}:${ss}`;
+}
+

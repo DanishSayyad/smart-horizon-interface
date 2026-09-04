@@ -100,7 +100,13 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
       map.invalidateSize();
     }, 50);
 
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+
     return () => {
+      window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
       map.remove();
       mapInstanceRef.current = null;

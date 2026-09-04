@@ -407,11 +407,16 @@ function DashboardLayout() {
     </div>
   );
 
+  useEffect(() => {
+    // Notify WebGL canvas and Leaflet map to adjust sizes immediately on panel toggle
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 20);
+    return () => clearTimeout(timer);
+  }, [activeTrack]);
+
   return (
-    <main
-      className={`dashboard ${activeTrack === 'track2' ? 'dashboard--panel2' : ''}`}
-      aria-label="Smart Horizon dashboard"
-    >
+    <main className="dashboard-root" aria-label="Smart Horizon dashboard">
       <input
         ref={fileInputRef}
         className="file-input"
@@ -420,198 +425,207 @@ function DashboardLayout() {
         onChange={handleFileChange}
       />
 
-      {activeTrack === 'track1' ? (
-        <>
-          <aside className="sidebar">
-            <div className="controls-row" aria-label="Top controls">
-              <button className="control control--wide" type="button" onClick={openFilePicker}>
-                Input CSV
-              </button>
-              <label className="control control--wide select-control">
-                <span className="sr-only">Time interval</span>
-                <select value={interval} onChange={(event) => setInterval(event.target.value)}>
-                  <option>15 mins</option>
-                  <option>30 mins</option>
-                  <option>1 hour</option>
-                  <option>2 hours</option>
-                </select>
-              </label>
-            </div>
+      {/* Panel 1 Layout (kept permanently mounted & preloaded) */}
+      <div
+        className={`dashboard-view dashboard ${
+          activeTrack === 'track1' ? 'dashboard-view--active' : 'dashboard-view--hidden'
+        }`}
+        aria-hidden={activeTrack !== 'track1'}
+      >
+        <aside className="sidebar">
+          <div className="controls-row" aria-label="Top controls">
+            <button className="control control--wide" type="button" onClick={openFilePicker}>
+              Input CSV
+            </button>
+            <label className="control control--wide select-control">
+              <span className="sr-only">Time interval</span>
+              <select value={interval} onChange={(event) => setInterval(event.target.value)}>
+                <option>15 mins</option>
+                <option>30 mins</option>
+                <option>1 hour</option>
+                <option>2 hours</option>
+              </select>
+            </label>
+          </div>
 
-            <p className="file-name">File name: {fileName}</p>
-            {inferenceStatus && (
-              <p
-                className={`inference-status${
-                  inferenceStatus.includes('failed') ? ' inference-status--error' : ''
-                }`}
-              >
-                [{inferenceStatus}]
-              </p>
-            )}
+          <p className="file-name">File name: {fileName}</p>
+          {inferenceStatus && (
+            <p
+              className={`inference-status${
+                inferenceStatus.includes('failed') ? ' inference-status--error' : ''
+              }`}
+            >
+              [{inferenceStatus}]
+            </p>
+          )}
 
-            <div className="controls-row" aria-label="File controls">
-              <label className="control control--short select-control">
-                <span className="sr-only">Orbit type</span>
-                <select value={source} onChange={(event) => setSource(event.target.value)}>
-                  <option>MEO</option>
-                  <option>GEO</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                className="control control--wide download-btn"
-                onClick={handleDownloadResult}
-                disabled={!resultCsv || isPredicting}
-                title={resultCsv ? 'Download returned CSV' : 'No result yet. Upload a CSV first.'}
-              >
-                {isPredicting ? 'Predicting…' : 'Download Result'}
-              </button>
-            </div>
+          <div className="controls-row" aria-label="File controls">
+            <label className="control control--short select-control">
+              <span className="sr-only">Orbit type</span>
+              <select value={source} onChange={(event) => setSource(event.target.value)}>
+                <option>MEO</option>
+                <option>GEO</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="control control--wide download-btn"
+              onClick={handleDownloadResult}
+              disabled={!resultCsv || isPredicting}
+              title={resultCsv ? 'Download returned CSV' : 'No result yet. Upload a CSV first.'}
+            >
+              {isPredicting ? 'Predicting…' : 'Download Result'}
+            </button>
+          </div>
 
-            <div className="sidebar-map-wrapper">
-              <header
-                className="sidebar-panel-header"
-                onClick={openMap}
-                role="button"
-                tabIndex={0}
-                aria-label="Open location selector dialog"
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openMap();
-                  }
-                }}
-              >
-                <span>Select Location</span>
-                <span className="sidebar-panel-header__icon" title="Expand map">⤢</span>
-              </header>
-              <section
-                className={`sidebar-panel map-preview${selectedLocation ? ' map-preview--selected' : ''}`}
-                aria-label="Select location"
-                role="button"
-                tabIndex={0}
-                onClick={openMap}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openMap();
-                  }
-                }}
-              >
-                <SatelliteMap onActivate={openMap} selectedLocation={selectedLocation} />
-              </section>
-            </div>
-            <section className="status-panel" aria-label="Selected address">
-              <p className="status-panel__label">Selected address</p>
-              <p className="status-panel__address">{address}</p>
+          <div className="sidebar-map-wrapper">
+            <header
+              className="sidebar-panel-header"
+              onClick={openMap}
+              role="button"
+              tabIndex={0}
+              aria-label="Open location selector dialog"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  openMap();
+                }
+              }}
+            >
+              <span>Select Location</span>
+              <span className="sidebar-panel-header__icon" title="Expand map">⤢</span>
+            </header>
+            <section
+              className={`sidebar-panel map-preview${selectedLocation ? ' map-preview--selected' : ''}`}
+              aria-label="Select location"
+              role="button"
+              tabIndex={0}
+              onClick={openMap}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  openMap();
+                }
+              }}
+            >
+              <SatelliteMap onActivate={openMap} selectedLocation={selectedLocation} />
             </section>
-          </aside>
-
-          <section className="content" aria-label="Primary content">
-            <Panel className="main-panel" label="Primary visualisation">
-              <SphereScene
-                currentPos={currentPos}
-                curve={curve}
-                progress={progress}
-                isPlaying={isPlaying}
-                currentErrors={currentErrors}
-                formattedTimer={formattedTimer}
-              />
-            </Panel>
-            <Panel className="bottom-panel" label="Timeline visualisation">
-              <TimelineSlider
-                progress={progress}
-                onSeek={setProgress}
-                isPlaying={isPlaying}
-                onTogglePlay={() => setIsPlaying((p) => !p)}
-                currentTimestamp={currentTimestamp}
-                currentErrors={currentErrors}
-                totalPoints={sampledPoints.length}
-                interval={interval}
-                speed={speed}
-                onSpeedChange={setSpeed}
-              />
-            </Panel>
+          </div>
+          <section className="status-panel" aria-label="Selected address">
+            <p className="status-panel__label">Selected address</p>
+            <p className="status-panel__address">{address}</p>
           </section>
+        </aside>
 
-          <aside className="right-column" aria-label="Supporting content">
-            {renderTrackSelector()}
-            <Panel className="right-panel right-panel--top" label="Clock error">
-              <ClockErrorPhasor
-                currentErrors={currentErrors}
-                sampledPoints={sampledPoints}
-                allPoints={allPoints}
-                isPlaying={isPlaying}
-                progress={progress}
-              />
-            </Panel>
-            <Panel className="right-panel right-panel--bottom" label="post-predicted triangulation">
-              <TriangulationMap
-                selectedLocation={selectedLocation}
-                engineOutput={engineOutput}
-                isPlaying={isPlaying}
-              />
-            </Panel>
-          </aside>
-        </>
-      ) : (
-        <>
-          {/* Panel 2 Layout matching diagram */}
-          <section className="panel2-main" aria-label="Panel 2 primary layout">
-            <div className="panel2-upper-row">
-              <div className="panel2-left-stack">
-                <Panel className="panel2-canvas-panel" label="Predicted error visualisation">
-                  <SphereScene
-                    currentPos={currentPos}
-                    curve={curve}
-                    progress={progress}
-                    isPlaying={isPlaying}
-                    currentErrors={currentErrors}
-                    formattedTimer={formattedTimer}
-                  />
-                </Panel>
-                <Panel className="panel2-timeline-panel" label="Timeline visualisation">
-                  <TimelineSlider
-                    progress={progress}
-                    onSeek={setProgress}
-                    isPlaying={isPlaying}
-                    onTogglePlay={() => setIsPlaying((p) => !p)}
-                    currentTimestamp={currentTimestamp}
-                    currentErrors={currentErrors}
-                    totalPoints={sampledPoints.length}
-                    interval={interval}
-                    speed={speed}
-                    onSpeedChange={setSpeed}
-                  />
-                </Panel>
-              </div>
+        <section className="content" aria-label="Primary content">
+          <Panel className="main-panel" label="Primary visualisation">
+            <SphereScene
+              currentPos={currentPos}
+              curve={curve}
+              progress={progress}
+              isPlaying={isPlaying}
+              currentErrors={currentErrors}
+              formattedTimer={formattedTimer}
+            />
+          </Panel>
+          <Panel className="bottom-panel" label="Timeline visualisation">
+            <TimelineSlider
+              progress={progress}
+              onSeek={setProgress}
+              isPlaying={isPlaying}
+              onTogglePlay={() => setIsPlaying((p) => !p)}
+              currentTimestamp={currentTimestamp}
+              currentErrors={currentErrors}
+              totalPoints={sampledPoints.length}
+              interval={interval}
+              speed={speed}
+              onSpeedChange={setSpeed}
+            />
+          </Panel>
+        </section>
 
-              {/* Central big box (blank) */}
-              <Panel className="panel2-center-box" label="Central panel" />
+        <aside className="right-column" aria-label="Supporting content">
+          {renderTrackSelector()}
+          <Panel className="right-panel right-panel--top" label="Clock error">
+            <ClockErrorPhasor
+              currentErrors={currentErrors}
+              sampledPoints={sampledPoints}
+              allPoints={allPoints}
+              isPlaying={isPlaying}
+              progress={progress}
+            />
+          </Panel>
+          <Panel className="right-panel right-panel--bottom" label="post-predicted triangulation">
+            <TriangulationMap
+              selectedLocation={selectedLocation}
+              engineOutput={engineOutput}
+              isPlaying={isPlaying}
+            />
+          </Panel>
+        </aside>
+      </div>
+
+      {/* Panel 2 Layout (kept permanently mounted & preloaded) */}
+      <div
+        className={`dashboard-view dashboard--panel2 ${
+          activeTrack === 'track2' ? 'dashboard-view--active' : 'dashboard-view--hidden'
+        }`}
+        aria-hidden={activeTrack !== 'track2'}
+      >
+        <section className="panel2-main" aria-label="Panel 2 primary layout">
+          <div className="panel2-upper-row">
+            <div className="panel2-left-stack">
+              <Panel className="panel2-canvas-panel" label="Predicted error visualisation">
+                <SphereScene
+                  currentPos={currentPos}
+                  curve={curve}
+                  progress={progress}
+                  isPlaying={isPlaying}
+                  currentErrors={currentErrors}
+                  formattedTimer={formattedTimer}
+                />
+              </Panel>
+              <Panel className="panel2-timeline-panel" label="Timeline visualisation">
+                <TimelineSlider
+                  progress={progress}
+                  onSeek={setProgress}
+                  isPlaying={isPlaying}
+                  onTogglePlay={() => setIsPlaying((p) => !p)}
+                  currentTimestamp={currentTimestamp}
+                  currentErrors={currentErrors}
+                  totalPoints={sampledPoints.length}
+                  interval={interval}
+                  speed={speed}
+                  onSpeedChange={setSpeed}
+                />
+              </Panel>
             </div>
 
-            {/* Three blank boxes in the left bottom */}
-            <div className="panel2-bottom-row" aria-label="Bottom panels">
-              <Panel className="panel2-bottom-box" label="Bottom slot 1" />
-              <Panel className="panel2-bottom-box" label="Bottom slot 2" />
-              <Panel className="panel2-bottom-box" label="Bottom slot 3" />
-            </div>
-          </section>
+            {/* Central big box (blank) */}
+            <Panel className="panel2-center-box" label="Central panel" />
+          </div>
 
-          {/* Right column: Switch, blank box, Triangulation box */}
-          <aside className="right-column panel2-right-column" aria-label="Supporting content">
-            {renderTrackSelector()}
-            <Panel className="panel2-right-blank" label="Supporting panel" />
-            <Panel className="right-panel right-panel--bottom" label="post-predicted triangulation">
-              <TriangulationMap
-                selectedLocation={selectedLocation}
-                engineOutput={engineOutput}
-                isPlaying={isPlaying}
-              />
-            </Panel>
-          </aside>
-        </>
-      )}
+          {/* Three blank boxes in the left bottom */}
+          <div className="panel2-bottom-row" aria-label="Bottom panels">
+            <Panel className="panel2-bottom-box" label="Bottom slot 1" />
+            <Panel className="panel2-bottom-box" label="Bottom slot 2" />
+            <Panel className="panel2-bottom-box" label="Bottom slot 3" />
+          </div>
+        </section>
+
+        {/* Right column: Switch, blank box, Triangulation box */}
+        <aside className="right-column panel2-right-column" aria-label="Supporting content">
+          {renderTrackSelector()}
+          <Panel className="panel2-right-blank" label="Supporting panel" />
+          <Panel className="right-panel right-panel--bottom" label="post-predicted triangulation">
+            <TriangulationMap
+              selectedLocation={selectedLocation}
+              engineOutput={engineOutput}
+              isPlaying={isPlaying}
+            />
+          </Panel>
+        </aside>
+      </div>
       {isMapOpen && (
         <MapModal
           onClose={closeMap}

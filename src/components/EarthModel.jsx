@@ -20,9 +20,14 @@ function EarthModel({
   const spinRef = useRef(null);
   const { scene } = useGLTF('/models/earth/scene.gltf');
 
+  // Clone scene so multiple Canvas instances (Panel 1 & Panel 2) each own an independent model hierarchy
+  const earthScene = useMemo(() => {
+    return scene.clone(true);
+  }, [scene]);
+
   // Measure raw model dimensions to normalize scale accurately
   const { rawRadius, centerOffset } = useMemo(() => {
-    const box = new THREE.Box3().setFromObject(scene);
+    const box = new THREE.Box3().setFromObject(earthScene);
     const size = new THREE.Vector3();
     box.getSize(size);
     const center = new THREE.Vector3();
@@ -33,7 +38,7 @@ function EarthModel({
       rawRadius: maxDim / 2,
       centerOffset: center.negate(),
     };
-  }, [scene]);
+  }, [earthScene]);
 
   // Scale so the model's actual radius equals target radius
   const scale = radius / (rawRadius || 98.1);
@@ -60,7 +65,7 @@ function EarthModel({
         {/* Continuously spins around its own local Y axis */}
         <group ref={spinRef}>
           <primitive
-            object={scene}
+            object={earthScene}
             position={[centerOffset.x, centerOffset.y, centerOffset.z]}
           />
         </group>

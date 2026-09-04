@@ -82,7 +82,13 @@ function SatelliteMap({ interactive = false, onActivate, onSelect, selectedLocat
 
     mapRef.current = map;
 
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+
     return () => {
+      window.removeEventListener('resize', handleResize);
       map.remove();
       mapRef.current = null;
     };

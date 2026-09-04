@@ -104,7 +104,7 @@ function SatelliteMap({ interactive = false, onActivate, onSelect, selectedLocat
     if (!markerRef.current) {
       markerRef.current = leaflet.circleMarker(selectedLocation, {
         color: '#f6ff00',
-        fillColor: '#1a985b',
+        fillColor: '#0284c7',
         fillOpacity: 1,
         radius: 11,
         weight: 4,

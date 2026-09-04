@@ -32,9 +32,9 @@ class ErrorBoundary extends Component {
             style={{
               marginTop: 8,
               padding: '4px 10px',
-              background: '#012919',
-              border: '1px solid #1a985b',
-              color: '#1a985b',
+              background: 'rgba(30, 58, 138, 0.4)',
+              border: '1px solid #38bdf8',
+              color: '#38bdf8',
               cursor: 'pointer',
             }}
           >

@@ -17,25 +17,20 @@ function SatelliteModel({
 }) {
   const { scene } = useGLTF('/models/satellite/scene.gltf');
 
-  // Deep clone scene and apply translucent faces wrapper material
+  // Deep clone scene and apply untextured outline wireframe material
   const outlinedScene = useMemo(() => {
     const cloned = scene.clone(true);
 
-    const wrapperMaterial = new THREE.MeshStandardMaterial({
+    const outlineMaterial = new THREE.MeshBasicMaterial({
       color,
-      roughness: 0.35,
-      metalness: 0.15,
+      wireframe: true,
       transparent: true,
-      opacity: 0.5,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      emissive: color,
-      emissiveIntensity: 0.12,
+      opacity: 0.9,
     });
 
     cloned.traverse((child) => {
       if (child.isMesh) {
-        child.material = wrapperMaterial;
+        child.material = outlineMaterial;
         child.castShadow = false;
         child.receiveShadow = false;
       }

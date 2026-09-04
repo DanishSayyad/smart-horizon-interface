@@ -16,6 +16,7 @@ function EarthModel({
   tiltXDeg = 75,         // Tilt angle on X axis in degrees
   spinSpeed = 0.01,      // Continuous spin speed on its own Y axis
   isPlaying = true,      // Pauses Earth rotation when simulation is paused
+  isLocked = false,      // Locks Earth rotation when GEO is selected
 }) {
   const spinRef = useRef(null);
   const { scene } = useGLTF('/models/earth/scene.gltf');
@@ -48,9 +49,9 @@ function EarthModel({
   // 75 degrees in radians
   const tiltXRad = THREE.MathUtils.degToRad(tiltXDeg);
 
-  // Continuous spin on its own local Y axis - pauses when isPlaying is false
+  // Continuous spin on its own local Y axis - pauses when isPlaying is false or when isLocked is true (GEO mode)
   useFrame((_, delta) => {
-    if (isPlaying && spinRef.current) {
+    if (isPlaying && !isLocked && spinRef.current) {
       spinRef.current.rotation.x -= delta * spinSpeed;
     }
   });

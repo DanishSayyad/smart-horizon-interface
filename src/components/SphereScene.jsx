@@ -1,10 +1,42 @@
 import { Suspense, useEffect, useRef } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import SpaceTrails from './SpaceTrails';
 import EarthModel from './EarthModel';
 import SatelliteModel from './SatelliteModel';
+
+/**
+ * Rotating Stars Component:
+ * - Centered on the satellite at origin [0, 0, 0]
+ * - Rotates opposite to Earth's axial rotation (+X direction) in both GEO and MEO settings
+ * - Pauses rotation when simulation playback is paused
+ */
+function RotatingStars({ isPlaying }) {
+  const starsGroupRef = useRef(null);
+
+  useFrame((_, delta) => {
+    if (isPlaying && starsGroupRef.current) {
+      // Earth spins in negative X direction (-delta * 0.02);
+      // stars rotate opposite in positive X direction around satellite [0,0,0]
+      starsGroupRef.current.rotation.x += delta * 0.015;
+    }
+  });
+
+  return (
+    <group ref={starsGroupRef} position={[0, 0, 0]}>
+      <Stars
+        radius={110}
+        depth={60}
+        count={5500}
+        factor={8}
+        saturation={0}
+        fade={false}
+        speed={0}
+      />
+    </group>
+  );
+}
 
 /**
  * Responsive camera: sets initial camera distance and frames the green cube.
@@ -47,38 +79,46 @@ function SphereScene({
   isPlaying = true,
   currentErrors = null,
   formattedTimer = '00:00:00:00',
+  source = 'MEO',
 }) {
+  // Height variable: default distance for MEO (1.2), increased by 5 when switched to GEO
+  const GEO_HEIGHT_VARIABLE = 5.0;
+  const DEFAULT_SURFACE_DISTANCE = 1.2;
+  const surfaceDistance =
+    source === 'GEO' ? DEFAULT_SURFACE_DISTANCE + GEO_HEIGHT_VARIABLE : DEFAULT_SURFACE_DISTANCE;
 
   return (
     <div className="sphere-canvas-container" aria-label="Satellite Orbit Error 3D visualization">
-      {/* Top overlay title with space flight telemetry */}
-      <div className="canvas-hud" aria-label="Visualisation title">
-        <span className="canvas-hud__title">Predicted Error</span>
-        <div className="canvas-hud__legend">
-          <span className="hud-tag hud-tag--green">● Actual (Origin)</span>
-          <span className="hud-tag hud-tag--red">● Deviated</span>
+      {/* Top overlay bar containing title, legend, telemetry and UTC timer without overlap */}
+      <div className="canvas-top-bar" aria-label="Visualisation header">
+        <div className="canvas-hud" aria-label="Visualisation title">
+          <span className="canvas-hud__title">Predicted Error</span>
+          <div className="canvas-hud__legend">
+            <span className="hud-tag hud-tag--green">● Actual</span>
+            <span className="hud-tag hud-tag--red">● Deviated</span>
+          </div>
+          {currentErrors && (
+            <span className="canvas-hud__coords">
+              [{currentErrors.x >= 0 ? '+' : ''}{currentErrors.x.toFixed(1)},{' '}
+              {currentErrors.y >= 0 ? '+' : ''}{currentErrors.y.toFixed(1)},{' '}
+              {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(1)}]m
+            </span>
+          )}
         </div>
-        {currentErrors && (
-          <span className="canvas-hud__coords">
-            [{currentErrors.x >= 0 ? '+' : ''}{currentErrors.x.toFixed(1)},{' '}
-            {currentErrors.y >= 0 ? '+' : ''}{currentErrors.y.toFixed(1)},{' '}
-            {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(1)}]m
-          </span>
-        )}
-      </div>
 
-      {/* Top-Right Simulation UTC Timer in dd:hh:mm:ss format */}
-      <div className="canvas-timer-hud" aria-label="Simulation timer">
-        <span className="canvas-timer-hud__label">UTC</span>
-        <span className="canvas-timer-hud__val">{formattedTimer}</span>
+        {/* Top-Right Simulation UTC Timer in dd:hh:mm:ss format */}
+        <div className="canvas-timer-hud" aria-label="Simulation timer">
+          <span className="canvas-timer-hud__label">UTC</span>
+          <span className="canvas-timer-hud__val">{formattedTimer}</span>
+        </div>
       </div>
 
       <Canvas
         camera={{ position: [3.0, 2.2, 3.8], fov: 45, near: 0.1, far: 2000 }}
         gl={{ alpha: true, antialias: true }}
       >
-        {/* Dark blue space background */}
-        <color attach="background" args={['#04081a']} />
+        {/* Dark space background */}
+        <color attach="background" args={['#060913']} />
 
         <ResponsiveCamera />
 
@@ -89,20 +129,12 @@ function SphereScene({
           enableDamping
           dampingFactor={0.05}
           minDistance={0.8}
-          maxDistance={9.5}
+          maxDistance={25.0}
           maxPolarAngle={Math.PI / 2 - 0.04} // Clamps tilt to ~87.7 deg so camera stays strictly above planet surface
         />
 
-        {/* Deep space starfield particle system - speed pauses on timeline pause */}
-        <Stars
-          radius={80}
-          depth={50}
-          count={5000}
-          factor={3.5}
-          saturation={0.1}
-          fade
-          speed={isPlaying ? 0.6 : 0}
-        />
+        {/* Stars rotating opposite to Earth, centered on satellite [0, 0, 0] in both GEO and MEO */}
+        <RotatingStars isPlaying={isPlaying} />
 
         {/* Space Scene Lighting */}
         <ambientLight intensity={1.3} />
@@ -117,18 +149,19 @@ function SphereScene({
           progress={progress}
           isPlaying={isPlaying}
           earthRadius={45.0}
-          surfaceDistance={1.2}
+          surfaceDistance={surfaceDistance}
         />
 
         {/* 3D GLTF Models wrapped in Suspense */}
         <Suspense fallback={null}>
-          {/* Massive Earth Model placed below satellites, tilted 75 deg on X, pauses on isPlaying false */}
+          {/* Massive Earth Model placed below satellites, tilted 75 deg on X, locked when source is GEO */}
           <EarthModel
-            surfaceDistance={1.2}
+            surfaceDistance={surfaceDistance}
             radius={45.0}
             tiltXDeg={75}
             spinSpeed={0.02}
             isPlaying={isPlaying}
+            isLocked={source === 'GEO'}
           />
 
           {/* Actual Satellite: Green outlined model at origin (fixed size, never resizes on CSV input) */}

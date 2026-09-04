@@ -9,10 +9,10 @@ import { memo } from 'react';
  */
 function TriangulationGlobe() {
   return (
-    <div className="triangulation-globe-wrapper" aria-label="3D GNSS Constellation Globe">
+    <div className="triangulation-globe-wrapper" aria-label="Triangulation Simulation">
       <iframe
         src="/triangulation/index.html?embed=1"
-        title="3D GNSS Constellation Globe"
+        title="Triangulation Simulation"
         className="triangulation-globe-iframe"
       />
     </div>

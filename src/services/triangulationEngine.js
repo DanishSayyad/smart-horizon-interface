@@ -337,3 +337,69 @@ export class TriangulationEngine {
 
 // Global default engine instance for shared per-frame simulation
 export const defaultTriangulationEngine = new TriangulationEngine('MEO');
+
+/**
+ * Precalculates the pre-correction and post-correction radii across the entire timeline beforehand.
+ * - If sampledPoints is provided (from CSV): iterates through each point in the timeline,
+ *   extracts its error (clock or norm), evaluates the solver, and collects outer & inner radii.
+ * - If no CSV: evaluates steps across the simulation loop.
+ * Returns:
+ * {
+ *   redRadii: number[],   // Pre-correction (raw / red circle) radii array
+ *   corrRadii: number[],  // Post-correction (corrected) radii array
+ *   maxRadius: number,    // Maximum radius at ANY point in the entire timeline
+ *   upperBound: number,   // Fixed clean upper bound for chart Y-scale
+ * }
+ */
+export function precalculateTimelineRadii({
+  mode = 'MEO',
+  sampledPoints = [],
+  totalSteps = 100,
+  loopDuration = 25,
+} = {}) {
+  const engine = new TriangulationEngine(mode);
+  const redRadii = [];
+  const corrRadii = [];
+
+  if (sampledPoints && sampledPoints.length > 0) {
+    const N = sampledPoints.length;
+    for (let i = 0; i < N; i++) {
+      const pt = sampledPoints[i];
+      const t = N > 1 ? (i / (N - 1)) * loopDuration : 0;
+      const csvErr =
+        pt.clock != null
+          ? pt.clock
+          : Math.hypot(pt.x || 0, pt.y || 0, pt.z || 0);
+
+      const out = engine.step(t, mode, csvErr);
+      const outerR = Math.max(0.5, out.radius?.outer ?? out.rawDeviationOffset ?? 10.8);
+      const innerR = Math.max(0.2, out.radius?.inner ?? out.correctedDeviationOffset ?? 7.5);
+      redRadii.push(Number(outerR.toFixed(3)));
+      corrRadii.push(Number(innerR.toFixed(3)));
+    }
+  } else {
+    for (let i = 0; i < totalSteps; i++) {
+      const t = totalSteps > 1 ? (i / (totalSteps - 1)) * loopDuration : 0;
+      const out = engine.step(t, mode, null);
+      const outerR = Math.max(0.5, out.radius?.outer ?? out.rawDeviationOffset ?? 10.8);
+      const innerR = Math.max(0.2, out.radius?.inner ?? out.correctedDeviationOffset ?? 7.5);
+      redRadii.push(Number(outerR.toFixed(3)));
+      corrRadii.push(Number(innerR.toFixed(3)));
+    }
+  }
+
+  const maxRadius = Math.max(
+    ...redRadii,
+    ...corrRadii,
+  );
+
+  // Upper bound with small headroom (e.g. 6%) rounded to neat value
+  const upperBound = Math.ceil(maxRadius * 1.06 * 10) / 10;
+
+  return {
+    redRadii,
+    corrRadii,
+    maxRadius,
+    upperBound,
+  };
+}

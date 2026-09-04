@@ -8,7 +8,13 @@ import TimelineSlider from './TimelineSlider';
 import ClockErrorPhasor from './ClockErrorPhasor';
 import TriangulationMap from './TriangulationMap';
 import TriangulationGlobe from './TriangulationGlobe';
-import { XYZErrorChart, ErrorMagnitudeChart, TriangulationRadiiBars } from './Panel2ErrorCharts';
+import {
+  XYZErrorBars,
+  XYZErrorChart,
+  ErrorMagnitudeChart,
+  TriangulationRadiiBars,
+  NoisySinWaveChart,
+} from './Panel2ErrorCharts';
 import {
   parseCSVToColumns,
   extractNormalizedPoints,
@@ -16,13 +22,15 @@ import {
   parseCsvTimestampToMs,
   formatTimestampDdhhmmss,
 } from '../utils/csvParser';
-import { TriangulationEngine } from '../services/triangulationEngine';
+import { TriangulationEngine, precalculateTimelineRadii } from '../services/triangulationEngine';
 import { ERROR_SCALE_FACTOR } from '../config/simulation';
+import { PREDICT_API_URL, API_BASE_URL } from '../config/api';
 
 const ANIMATION_LOOP_SECONDS = 25; // Constant loop duration across all intervals
 
 function DashboardLayout() {
   const fileInputRef = useRef(null);
+  const selectedFileRef = useRef(null);
   const [fileName, setFileName] = useState('No CSV selected');
   const [interval, setInterval] = useState('15 mins');
   const [source, setSource] = useState('MEO');
@@ -102,39 +110,54 @@ function DashboardLayout() {
     fileInputRef.current?.click();
   }
 
-  async function handleFileChange(event) {
-    const selectedFile = event.target.files?.[0];
-
-    if (selectedFile) {
-      setFileName(selectedFile.name);
+  const runInference = useCallback(
+    async (file, orbitType) => {
+      if (!file) return;
+      const orbit = (orbitType || source || 'MEO').toUpperCase();
       setIsPredicting(true);
-      setInferenceStatus('Predicting…');
+      setInferenceStatus(`Predicting (${orbit})…`);
 
       try {
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        formData.append('file', file);
+        formData.append('orbit', orbit);
 
         let responseText = '';
+        let primaryError = null;
+
+        // 1. Primary inference attempt using configured environment URL (VITE_API_URL)
         try {
-          const response = await fetch('/predict', {
+          const response = await fetch(PREDICT_API_URL, {
             method: 'POST',
             body: formData,
           });
           if (response.ok) {
             responseText = await response.text();
           } else {
-            throw new Error(`Server status: ${response.status}`);
+            const errData = await response.json().catch(() => null);
+            throw new Error(errData?.error || `Server status: ${response.status}`);
           }
-        } catch {
-          // Direct fallback to port 8000 on IPv4
-          const directResponse = await fetch('http://127.0.0.1:8000/predict', {
-            method: 'POST',
-            body: formData,
-          });
-          if (!directResponse.ok) {
-            throw new Error(`Server status: ${directResponse.status}`);
+        } catch (err) {
+          primaryError = err;
+        }
+
+        // 2. Secondary fallback attempt: if direct PREDICT_API_URL failed and differs from local proxy '/predict'
+        if (!responseText && PREDICT_API_URL !== '/predict') {
+          try {
+            const fallbackResponse = await fetch('/predict', {
+              method: 'POST',
+              body: formData,
+            });
+            if (fallbackResponse.ok) {
+              responseText = await fallbackResponse.text();
+            }
+          } catch {
+            // Secondary fallback failed; primaryError will be reported below
           }
-          responseText = await directResponse.text();
+        }
+
+        if (!responseText) {
+          throw primaryError || new Error(`Could not reach backend at ${API_BASE_URL}`);
         }
 
         // Store returned CSV in background
@@ -150,14 +173,48 @@ function DashboardLayout() {
           window.__SMART_HORIZON_RAW_CSV__ = responseText;
         }
 
-        setInferenceStatus(`Ready (${parsed.rowCount} rows)`);
+        setInferenceStatus(`Ready (${parsed.rowCount} rows · ${orbit})`);
         setProgress(0); // Reset animation progress to start
       } catch (err) {
         console.error('Inference request failed:', err);
-        setInferenceStatus('Inference failed (check port 8000)');
+        setInferenceStatus(`Inference failed: ${err.message || `check backend at ${API_BASE_URL}`}`);
       } finally {
         setIsPredicting(false);
       }
+    },
+    [source],
+  );
+
+  async function handleFileChange(event) {
+    const selectedFile = event.target.files?.[0];
+
+    if (selectedFile) {
+      selectedFileRef.current = selectedFile;
+      setFileName(selectedFile.name);
+
+      let targetOrbit = source;
+      const upperName = selectedFile.name.toUpperCase();
+      if (upperName.includes('GEO') && !upperName.includes('MEO')) {
+        targetOrbit = 'GEO';
+        setSource('GEO');
+      } else if (upperName.includes('MEO') && !upperName.includes('GEO')) {
+        targetOrbit = 'MEO';
+        setSource('MEO');
+      }
+
+      await runInference(selectedFile, targetOrbit);
+
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  }
+
+  function handleOrbitChange(event) {
+    const newOrbit = event.target.value;
+    setSource(newOrbit);
+    if (selectedFileRef.current) {
+      runInference(selectedFileRef.current, newOrbit);
     }
   }
 
@@ -168,8 +225,8 @@ function DashboardLayout() {
     const link = document.createElement('a');
     const downloadName =
       fileName && fileName !== 'No CSV selected'
-        ? `${fileName.replace(/\.csv$/i, '')}_predicted.csv`
-        : 'predicted_result.csv';
+        ? `${fileName.replace(/\.csv$/i, '')}_${source.toLowerCase()}_predicted.csv`
+        : `predicted_${source.toLowerCase()}_result.csv`;
     link.href = url;
     link.setAttribute('download', downloadName);
     document.body.appendChild(link);
@@ -358,13 +415,43 @@ function DashboardLayout() {
     return '00:00:00:00';
   }, [progress, sampledPoints, allPoints, totalSimulationSeconds]);
 
+  // Precalculated radii arrays across the timeline beforehand
+  const timelineRadii = useMemo(() => {
+    return precalculateTimelineRadii({
+      mode: source,
+      sampledPoints,
+      loopDuration: ANIMATION_LOOP_SECONDS,
+    });
+  }, [source, sampledPoints]);
+
   // Triangulation Simulation Engine (§1 - §10) specifically for Post-Predicted Triangulation panel
   const engineOutput = useMemo(() => {
     const csvErr = currentErrors?.clock != null
       ? currentErrors.clock
       : currentErrors ? Math.hypot(currentErrors.x, currentErrors.y, currentErrors.z) : null;
-    return engineRef.current.step(simTime, source, csvErr);
-  }, [simTime, source, currentErrors]);
+    const baseOutput = engineRef.current.step(simTime, source, csvErr);
+
+    // Synchronize radii with precalculated timeline arrays
+    if (timelineRadii?.redRadii?.length) {
+      const total = timelineRadii.redRadii.length;
+      const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+      const idx = Math.min(total - 1, Math.max(0, Math.floor(safeProg * (total - 1))));
+      const precalcOuter = timelineRadii.redRadii[idx];
+      const precalcInner = timelineRadii.corrRadii[idx];
+
+      return {
+        ...baseOutput,
+        radius: {
+          outer: precalcOuter,
+          inner: precalcInner,
+        },
+        rawDeviationOffset: precalcOuter,
+        correctedDeviationOffset: precalcInner,
+      };
+    }
+
+    return baseOutput;
+  }, [simTime, source, currentErrors, timelineRadii, progress]);
 
   const openMap = useCallback(() => {
     setIsMapOpen(true);
@@ -464,9 +551,9 @@ function DashboardLayout() {
           <div className="controls-row" aria-label="File controls">
             <label className="control control--short select-control">
               <span className="sr-only">Orbit type</span>
-              <select value={source} onChange={(event) => setSource(event.target.value)}>
-                <option>MEO</option>
-                <option>GEO</option>
+              <select value={source} onChange={handleOrbitChange}>
+                <option value="MEO">MEO</option>
+                <option value="GEO">GEO</option>
               </select>
             </label>
             <button
@@ -528,6 +615,7 @@ function DashboardLayout() {
               isPlaying={isPlaying}
               currentErrors={currentErrors}
               formattedTimer={formattedTimer}
+              source={source}
             />
           </Panel>
           <Panel className="bottom-panel" label="Timeline visualisation">
@@ -585,6 +673,7 @@ function DashboardLayout() {
                   isPlaying={isPlaying}
                   currentErrors={currentErrors}
                   formattedTimer={formattedTimer}
+                  source={source}
                 />
               </Panel>
               <Panel className="panel2-timeline-panel" label="Timeline visualisation">
@@ -604,18 +693,20 @@ function DashboardLayout() {
             </div>
 
             {/* Central 3D Globe with hovering satellites & orbit speed slider */}
-            <Panel className="panel2-center-box" label="3D Satellite Constellation Globe">
+            <Panel className="panel2-center-box" label="Triangulation Simulation">
               <TriangulationGlobe />
             </Panel>
           </div>
 
           {/* Three lower error charts in panel 2 */}
           <div className="panel2-bottom-row" aria-label="Bottom error charts">
-            <Panel className="panel2-bottom-box" label="XYZ Error Components">
-              <XYZErrorChart
+            <Panel className="panel2-bottom-box" label="1λ Sine Wave & Error Magnitude (Analysis)">
+              <NoisySinWaveChart
                 currentErrors={currentErrors}
                 engineOutput={engineOutput}
                 simTime={simTime}
+                progress={progress}
+                sampledPoints={sampledPoints}
                 isPlaying={isPlaying}
               />
             </Panel>
@@ -624,6 +715,8 @@ function DashboardLayout() {
                 currentErrors={currentErrors}
                 engineOutput={engineOutput}
                 simTime={simTime}
+                progress={progress}
+                sampledPoints={sampledPoints}
                 isPlaying={isPlaying}
               />
             </Panel>
@@ -631,16 +724,27 @@ function DashboardLayout() {
               <TriangulationRadiiBars
                 engineOutput={engineOutput}
                 simTime={simTime}
+                progress={progress}
+                sampledPoints={sampledPoints}
+                source={source}
+                timelineRadii={timelineRadii}
                 isPlaying={isPlaying}
               />
             </Panel>
           </div>
         </section>
 
-        {/* Right column: Switch, blank box, Triangulation box */}
+        {/* Right column: Switch, XYZ Error 3 Bars box, Triangulation box */}
         <aside className="right-column panel2-right-column" aria-label="Supporting content">
           {renderTrackSelector()}
-          <Panel className="panel2-right-blank" label="Supporting panel" />
+          <Panel className="panel2-right-blank" label="XYZ Error Components">
+            <XYZErrorBars
+              currentErrors={currentErrors}
+              engineOutput={engineOutput}
+              simTime={simTime}
+              isPlaying={isPlaying}
+            />
+          </Panel>
           <Panel className="right-panel right-panel--bottom" label="post-predicted triangulation">
             <TriangulationMap
               selectedLocation={selectedLocation}

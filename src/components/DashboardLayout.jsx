@@ -814,9 +814,11 @@ function DashboardLayout() {
 
           {/* Three lower error charts in panel 2 */}
           <div className="panel2-bottom-row" aria-label="Bottom error charts">
-            <Panel className="panel2-bottom-box" label="1λ Sine Wave & Error Magnitude (Analysis)">
+            <Panel className="panel2-bottom-box" label="Dual Error Magnitudes (Actual vs Predicted)">
               <NoisySinWaveChart
                 currentErrors={currentErrors}
+                currentActualErrors={currentActualErrors}
+                testAllPoints={testAllPoints}
                 engineOutput={engineOutput}
                 simTime={simTime}
                 progress={progress}
@@ -824,9 +826,11 @@ function DashboardLayout() {
                 isPlaying={isPlaying}
               />
             </Panel>
-            <Panel className="panel2-bottom-box" label="Error Magnitude">
+            <Panel className="panel2-bottom-box" label="|True - Predicted| Error Vector Magnitude">
               <ErrorMagnitudeChart
                 currentErrors={currentErrors}
+                currentActualErrors={currentActualErrors}
+                testAllPoints={testAllPoints}
                 engineOutput={engineOutput}
                 simTime={simTime}
                 progress={progress}
@@ -851,9 +855,10 @@ function DashboardLayout() {
         {/* Right column: Switch, XYZ Error 3 Bars box, Triangulation box */}
         <aside className="right-column panel2-right-column" aria-label="Supporting content">
           {renderTrackSelector()}
-          <Panel className="panel2-right-blank" label="XYZ Error Components">
+          <Panel className="panel2-right-blank" label="XYZ Error Differences (True - Predicted)">
             <XYZErrorBars
               currentErrors={currentErrors}
+              currentActualErrors={currentActualErrors}
               engineOutput={engineOutput}
               simTime={simTime}
               isPlaying={isPlaying}

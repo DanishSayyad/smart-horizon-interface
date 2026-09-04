@@ -245,3 +245,169 @@ export function formatTimestampDdhhmmss(ms) {
   return `${dd}:${hh}:${mm}:${ss}`;
 }
 
+/**
+ * Detects the dominant time interval from parsed telemetry data points.
+ * Returns one of the standard interval strings: '15 mins', '30 mins', '1 hour', '2 hours'.
+ */
+export function detectIntervalFromPoints(points) {
+  if (!points || points.length < 2) return null;
+
+  const deltas = [];
+  for (let i = 1; i < points.length; i++) {
+    const tPrev = points[i - 1]?.timeMs;
+    const tCurr = points[i]?.timeMs;
+    if (Number.isFinite(tPrev) && Number.isFinite(tCurr) && tCurr > tPrev) {
+      deltas.push((tCurr - tPrev) / 1000); // in seconds
+    }
+  }
+
+  if (deltas.length === 0) return null;
+
+  // Use median delta to be robust against uneven gaps or missing epochs
+  deltas.sort((a, b) => a - b);
+  const medianSec = deltas[Math.floor(deltas.length / 2)];
+  const medianMin = medianSec / 60;
+
+  if (medianMin >= 90) {
+    return '2 hours';
+  } else if (medianMin >= 45) {
+    return '1 hour';
+  } else if (medianMin >= 22.5) {
+    return '30 mins';
+  } else {
+    return '15 mins';
+  }
+}
+
+/**
+ * Maps a continuous progress value [0, 1] onto a sequence of points that may have uneven time intervals.
+ * 
+ * If points have valid timestamps (timeMs), target time is:
+ *   targetTime = tStart + progress * (tEnd - tStart)
+ * and it finds the exact bracketing pair of points (p_i, p_i+1) where t_i <= targetTime <= t_i+1,
+ * interpolating error values proportionally across the actual elapsed time.
+ */
+export function interpolateUnevenPointsByProgress(points, progress) {
+  if (!points || !points.length) return null;
+  if (points.length === 1) {
+    const pt = points[0];
+    return {
+      point: pt,
+      x: pt.x || 0,
+      y: pt.y || 0,
+      z: pt.z || 0,
+      clock: typeof pt.clock === 'number' ? pt.clock : Number(pt.clock) || 0,
+      time: pt.time || '',
+      timeMs: pt.timeMs,
+    };
+  }
+
+  const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  const tStart = points[0]?.timeMs;
+  const tEnd = points[points.length - 1]?.timeMs;
+
+  if (Number.isFinite(tStart) && Number.isFinite(tEnd) && tEnd > tStart) {
+    const targetMs = tStart + safeProg * (tEnd - tStart);
+
+    if (targetMs <= tStart) {
+      const p = points[0];
+      return {
+        point: p,
+        x: p.x || 0,
+        y: p.y || 0,
+        z: p.z || 0,
+        clock: typeof p.clock === 'number' ? p.clock : Number(p.clock) || 0,
+        time: p.time || '',
+        timeMs: p.timeMs,
+      };
+    }
+    if (targetMs >= tEnd) {
+      const p = points[points.length - 1];
+      return {
+        point: p,
+        x: p.x || 0,
+        y: p.y || 0,
+        z: p.z || 0,
+        clock: typeof p.clock === 'number' ? p.clock : Number(p.clock) || 0,
+        time: p.time || '',
+        timeMs: p.timeMs,
+      };
+    }
+
+    // Binary search for index i such that points[i].timeMs <= targetMs <= points[i+1].timeMs
+    let low = 0;
+    let high = points.length - 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const tMid = points[mid]?.timeMs ?? 0;
+      if (tMid <= targetMs) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    const i = Math.max(0, Math.min(high, points.length - 2));
+    const p1 = points[i];
+    const p2 = points[i + 1] || p1;
+
+    const t1 = p1?.timeMs ?? targetMs;
+    const t2 = p2?.timeMs ?? targetMs;
+    const alpha = t2 > t1 ? Math.max(0, Math.min(1, (targetMs - t1) / (t2 - t1))) : 0;
+
+    const p1x = p1.x ?? 0;
+    const p1y = p1.y ?? 0;
+    const p1z = p1.z ?? 0;
+    const p2x = p2.x ?? p1x;
+    const p2y = p2.y ?? p1y;
+    const p2z = p2.z ?? p1z;
+
+    const p1clk = typeof p1.clock === 'number' ? p1.clock : Number(p1.clock) || 0;
+    const p2clk = typeof p2.clock === 'number' ? p2.clock : Number(p2.clock) || p1clk;
+
+    return {
+      point: alpha < 0.5 ? p1 : p2,
+      x: p1x + (p2x - p1x) * alpha,
+      y: p1y + (p2y - p1y) * alpha,
+      z: p1z + (p2z - p1z) * alpha,
+      clock: p1clk + (p2clk - p1clk) * alpha,
+      time: alpha < 0.5 ? (p1.time || '') : (p2.time || p1.time || ''),
+      timeMs: targetMs,
+      alpha,
+      segmentIndex: i,
+    };
+  }
+
+  // Fallback: index-based proportional interpolation if timestamps are missing
+  const totalSegments = points.length - 1;
+  const floatIndex = safeProg * totalSegments;
+  const lower = Math.max(0, Math.min(Math.floor(floatIndex) || 0, totalSegments));
+  const upper = Math.max(0, Math.min(lower + 1, totalSegments));
+  const alpha = Number.isFinite(floatIndex - lower) ? floatIndex - lower : 0;
+
+  const p1 = points[lower] || points[0];
+  const p2 = points[upper] || p1;
+
+  const p1x = p1.x ?? 0;
+  const p1y = p1.y ?? 0;
+  const p1z = p1.z ?? 0;
+  const p2x = p2.x ?? p1x;
+  const p2y = p2.y ?? p1y;
+  const p2z = p2.z ?? p1z;
+
+  const p1clk = typeof p1.clock === 'number' ? p1.clock : Number(p1.clock) || 0;
+  const p2clk = typeof p2.clock === 'number' ? p2.clock : Number(p2.clock) || p1clk;
+
+  return {
+    point: alpha < 0.5 ? p1 : p2,
+    x: p1x + (p2x - p1x) * alpha,
+    y: p1y + (p2y - p1y) * alpha,
+    z: p1z + (p2z - p1z) * alpha,
+    clock: p1clk + (p2clk - p1clk) * alpha,
+    time: alpha < 0.5 ? (p1.time || '') : (p2.time || p1.time || ''),
+    timeMs: p1.timeMs,
+    alpha,
+    segmentIndex: lower,
+  };
+}
+

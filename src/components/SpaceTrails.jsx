@@ -15,6 +15,8 @@ const MAX_ORBIT_ANGLE = 0.55; // ~31.5 degrees arc around the Earth
 function SpaceTrails({
   currentPos = new THREE.Vector3(0, 0, 0),
   curve = null,
+  currentActualPos = new THREE.Vector3(0, 0, 0),
+  actualCurve = null,
   progress = 0,
   isPlaying = true,
   earthRadius = 45.0,
@@ -42,9 +44,9 @@ function SpaceTrails({
       const y = orbitCenterY + orbitRadius * Math.cos(theta);
       const z = -orbitRadius * Math.sin(theta);
 
-      positions[i * 3] = 0;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
+      positions[i * 3] = currentActualPos.x || 0;
+      positions[i * 3 + 1] = y + (currentActualPos.y || 0);
+      positions[i * 3 + 2] = z + (currentActualPos.z || 0);
 
       const fade = Math.pow(1 - alpha, 1.2);
       // Bright green (#10b981) fading into the orbital distance
@@ -56,7 +58,7 @@ function SpaceTrails({
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return geom;
-  }, [orbitRadius, orbitCenterY]);
+  }, [orbitRadius, orbitCenterY, currentActualPos.x, currentActualPos.y, currentActualPos.z]);
 
   // Initialize red deviated orbit trail
   const redGeometry = useMemo(() => {
@@ -86,6 +88,38 @@ function SpaceTrails({
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     return geom;
   }, [orbitRadius, orbitCenterY, currentPos.x, currentPos.y, currentPos.z]);
+
+  // Update green trail shape whenever progress or currentActualPos or actualCurve changes
+  useMemo(() => {
+    if (!greenGeometry) return;
+    const posAttr = greenGeometry.attributes.position;
+    if (!posAttr) return;
+
+    for (let i = 0; i < TRAIL_POINTS; i++) {
+      const alpha = i / (TRAIL_POINTS - 1);
+      const theta = alpha * MAX_ORBIT_ANGLE;
+
+      const nominalY = orbitCenterY + orbitRadius * Math.cos(theta);
+      const nominalZ = -orbitRadius * Math.sin(theta);
+
+      if (actualCurve) {
+        const progressOffset = alpha * 0.35;
+        let u = (progress - progressOffset) % 1.0;
+        if (u < 0) u += 1.0;
+
+        const sample = actualCurve.getPoint(u);
+        posAttr.setXYZ(i, sample.x, nominalY + sample.y, nominalZ + sample.z);
+      } else {
+        posAttr.setXYZ(
+          i,
+          currentActualPos.x || 0,
+          nominalY + (currentActualPos.y || 0),
+          nominalZ + (currentActualPos.z || 0),
+        );
+      }
+    }
+    posAttr.needsUpdate = true;
+  }, [greenGeometry, actualCurve, progress, orbitRadius, orbitCenterY, currentActualPos.x, currentActualPos.y, currentActualPos.z]);
 
   // Update red trail shape whenever progress or currentPos changes
   useMemo(() => {
@@ -143,9 +177,22 @@ function SpaceTrails({
       for (let i = 0; i < PULSE_COUNT; i++) {
         const frac = (phase + i / PULSE_COUNT) % 1.0;
         const theta = frac * MAX_ORBIT_ANGLE;
-        const y = orbitCenterY + orbitRadius * Math.cos(theta);
-        const z = -orbitRadius * Math.sin(theta);
-        pos.setXYZ(i, 0, y, z);
+        const nominalY = orbitCenterY + orbitRadius * Math.cos(theta);
+        const nominalZ = -orbitRadius * Math.sin(theta);
+
+        if (actualCurve) {
+          let u = (progress - frac * 0.35) % 1.0;
+          if (u < 0) u += 1.0;
+          const pt = actualCurve.getPoint(u);
+          pos.setXYZ(i, pt.x, nominalY + pt.y, nominalZ + pt.z);
+        } else {
+          pos.setXYZ(
+            i,
+            currentActualPos.x || 0,
+            nominalY + (currentActualPos.y || 0),
+            nominalZ + (currentActualPos.z || 0),
+          );
+        }
       }
       pos.needsUpdate = true;
     }

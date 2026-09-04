@@ -1,427 +1,418 @@
 import { useEffect, useMemo, useRef } from 'react';
-import Chart from 'chart.js/auto';
 
-// Benchmark: green reference hand completes a full clockwise rotation in 7 seconds (7:1.6 ratio)
-const NOMINAL_PERIOD = 7.0; // 7 seconds per circle (ratio 7:1.6)
-const RATIO_SECONDS_PER_UNIT = 7.0 / 1.6; // 4.375 s/unit
-const BASE_MAX_ERROR = 1.6;
-const PHASOR_RADIUS = 1.0; // Constant magnitude for nominal reference hand
+// Speed of light: c = 0.299792458 meters per nanosecond
+const SPEED_OF_LIGHT_M_PER_NS = 0.299792458;
 
-/**
- * Generates points on a circle of given radius.
- */
-function generateCirclePoints(radius, segments = 64) {
-  const points = [];
-  for (let i = 0; i <= segments; i++) {
-    const angle = (i / segments) * 2 * Math.PI;
-    points.push({
-      x: radius * Math.cos(angle),
-      y: radius * Math.sin(angle),
-    });
-  }
-  return points;
+// Convert clock error from meters to nanoseconds
+function metersToNanoseconds(m) {
+  if (m === null || m === undefined || !Number.isFinite(m)) return 0;
+  return m / SPEED_OF_LIGHT_M_PER_NS;
 }
 
+// 7 seconds per nominal circle rotation
+const NOMINAL_PERIOD_SECONDS = 7.0;
+const BASE_MAX_ERROR_METERS = 1.6;
+
+/**
+ * 2D Clock Error Phasor Diagram:
+ * - Pure 2D HTML5 Canvas rendering
+ * - Two 2D spinning vector arrows:
+ *     1. Green Arrow: Actual / Nominal Reference Phasor
+ *     2. Red Arrow: Predicted Clock Error Deviated Phasor
+ * - Visual angular arc showing the subtraction in their angles: Δθ = (θ_pred - θ_act)
+ * - All units displayed in nanoseconds (ns)
+ */
 function ClockErrorPhasor({
   currentErrors,
+  actualErrors = null,
   sampledPoints = [],
+  testSampledPoints = [],
   allPoints = [],
   isPlaying = false,
   progress = 0,
 }) {
+  const containerRef = useRef(null);
   const canvasRef = useRef(null);
-  const chartRef = useRef(null);
   const rotationAngleRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
 
-  // Calculate the maximum magnitude of the clock error from loaded CSV data
-  const maxClockError = useMemo(() => {
+  // Calculate the maximum clock error in meters across predicted and actual points
+  const maxClockErrorMeters = useMemo(() => {
     const points = sampledPoints.length > 0 ? sampledPoints : allPoints;
-    if (!points || points.length === 0) {
-      return BASE_MAX_ERROR;
+    const testPoints = testSampledPoints.length > 0 ? testSampledPoints : [];
+    if ((!points || points.length === 0) && (!testPoints || testPoints.length === 0)) {
+      return BASE_MAX_ERROR_METERS;
     }
 
     let maxVal = 0;
     for (const pt of points) {
       const val = Math.abs(typeof pt.clock === 'number' ? pt.clock : Number(pt.clock) || 0);
-      if (val > maxVal) {
-        maxVal = val;
-      }
+      if (val > maxVal) maxVal = val;
+    }
+    for (const pt of testPoints) {
+      const val = Math.abs(typeof pt.clock === 'number' ? pt.clock : Number(pt.clock) || 0);
+      if (val > maxVal) maxVal = val;
     }
 
-    return maxVal > 0 ? maxVal : BASE_MAX_ERROR;
-  }, [sampledPoints, allPoints]);
+    return maxVal > 0 ? maxVal : BASE_MAX_ERROR_METERS;
+  }, [sampledPoints, allPoints, testSampledPoints]);
 
-  // Current clock error value from active playback / scrub position
-  const currentClockError = currentErrors?.clock !== undefined ? currentErrors.clock : 0;
+  // Clock errors in meters and nanoseconds
+  const currentClockMeters = currentErrors?.clock !== undefined ? currentErrors.clock : 0;
+  const actualClockMeters =
+    actualErrors && actualErrors.clock !== undefined && actualErrors.clock !== null
+      ? actualErrors.clock
+      : null;
 
-  // Sync references for animation loop
-  const currentClockErrorRef = useRef(currentClockError);
-  const maxClockErrorRef = useRef(maxClockError);
+  const maxNs = metersToNanoseconds(maxClockErrorMeters);
+  const predNs = metersToNanoseconds(currentClockMeters);
+  const actNs = actualClockMeters !== null ? metersToNanoseconds(actualClockMeters) : null;
+  const deltaNs = actNs !== null ? predNs - actNs : predNs;
 
-  currentClockErrorRef.current = currentClockError;
-  maxClockErrorRef.current = maxClockError;
+  // Storing latest values in refs for animation loop
+  const valuesRef = useRef({
+    currentClockMeters,
+    actualClockMeters,
+    maxClockErrorMeters,
+  });
 
-  // Initialize Chart.js
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    const ctx = canvasRef.current.getContext('2d');
-
-    // Concentric circle rings for polar grid
-    const outerRing = generateCirclePoints(PHASOR_RADIUS, 64);
-    const ring75 = generateCirclePoints(PHASOR_RADIUS * 0.75, 48);
-    const ring50 = generateCirclePoints(PHASOR_RADIUS * 0.5, 40);
-    const ring25 = generateCirclePoints(PHASOR_RADIUS * 0.25, 32);
-
-    // Custom plugin to draw glowing arrowheads, center pivot, dial markers, and phase arc
-    const phasorVisualsPlugin = {
-      id: 'phasorVisuals',
-      afterDraw(chart) {
-        const { ctx: c, scales } = chart;
-        const { x: xScale, y: yScale } = scales;
-        if (!xScale || !yScale) return;
-
-        const cx = xScale.getPixelForValue(0);
-        const cy = yScale.getPixelForValue(0);
-        const rPix = Math.abs(xScale.getPixelForValue(PHASOR_RADIUS) - cx);
-
-        c.save();
-
-        // 1. Polar angle tick marks and labels (clockwise dial)
-        const ticks = [
-          { x: 0, y: PHASOR_RADIUS, label: '0°' },       // Top (12 o'clock)
-          { x: PHASOR_RADIUS, y: 0, label: '90°' },      // Right (3 o'clock)
-          { x: 0, y: -PHASOR_RADIUS, label: '180°' },    // Bottom (6 o'clock)
-          { x: -PHASOR_RADIUS, y: 0, label: '270°' },    // Left (9 o'clock)
-        ];
-
-        c.font = '9px "Courier New", monospace';
-        c.fillStyle = 'rgba(26, 152, 91, 0.75)';
-        c.textAlign = 'center';
-        c.textBaseline = 'middle';
-
-        ticks.forEach(({ x, y, label }) => {
-          const tx = cx + (xScale.getPixelForValue(x) - cx) * 1.15;
-          const ty = cy + (yScale.getPixelForValue(y) - cy) * 1.15;
-          c.fillText(label, tx, ty);
-        });
-
-        // 2. Draw glowing arrowheads on vectors
-        function drawArrowhead(tipXVal, tipYVal, color, glowColor, arrowSize = 9) {
-          const tipX = xScale.getPixelForValue(tipXVal);
-          const tipY = yScale.getPixelForValue(tipYVal);
-          const dx = tipX - cx;
-          const dy = tipY - cy;
-          const len = Math.hypot(dx, dy);
-          if (len < 10) return;
-
-          const angle = Math.atan2(dy, dx);
-
-          c.save();
-          c.shadowColor = glowColor;
-          c.shadowBlur = 8;
-          c.fillStyle = color;
-          c.beginPath();
-          c.moveTo(tipX, tipY);
-          c.lineTo(
-            tipX - arrowSize * Math.cos(angle - Math.PI / 6),
-            tipY - arrowSize * Math.sin(angle - Math.PI / 6),
-          );
-          c.lineTo(
-            tipX - (arrowSize * 0.6) * Math.cos(angle),
-            tipY - (arrowSize * 0.6) * Math.sin(angle),
-          );
-          c.lineTo(
-            tipX - arrowSize * Math.cos(angle + Math.PI / 6),
-            tipY - arrowSize * Math.sin(angle + Math.PI / 6),
-          );
-          c.closePath();
-          c.fill();
-          c.restore();
-        }
-
-        // Arrow for Green Reference Hand (Dataset index 5)
-        const greenData = chart.data.datasets[5]?.data;
-        if (greenData && greenData[1]) {
-          drawArrowhead(greenData[1].x, greenData[1].y, '#10b981', 'rgba(16, 185, 129, 0.8)', 10);
-        }
-
-        // Arrow for Red Clock Error Hand (Dataset index 6)
-        const redData = chart.data.datasets[6]?.data;
-        if (redData && redData[1]) {
-          drawArrowhead(redData[1].x, redData[1].y, '#ef4444', 'rgba(239, 68, 68, 0.8)', 8);
-        }
-
-        // 3. Phase error arc between green hand and red hand
-        if (greenData && greenData[1] && redData && redData[1]) {
-          const tipGX = xScale.getPixelForValue(greenData[1].x) - cx;
-          const tipGY = yScale.getPixelForValue(greenData[1].y) - cy;
-          const tipRX = xScale.getPixelForValue(redData[1].x) - cx;
-          const tipRY = yScale.getPixelForValue(redData[1].y) - cy;
-
-          const angleG = Math.atan2(tipGY, tipGX);
-          const angleR = Math.atan2(tipRY, tipRX);
-
-          if (Math.abs(angleR - angleG) > 0.05) {
-            c.save();
-            c.beginPath();
-            c.arc(cx, cy, rPix * 0.35, angleG, angleR, false);
-            c.strokeStyle = 'rgba(246, 255, 0, 0.5)';
-            c.lineWidth = 1.5;
-            c.setLineDash([2, 2]);
-            c.stroke();
-            c.restore();
-          }
-        }
-
-        // 4. Glowing center origin pivot dot
-        c.save();
-        c.beginPath();
-        c.arc(cx, cy, 3, 0, 2 * Math.PI);
-        c.fillStyle = '#f6ff00';
-        c.shadowColor = '#f6ff00';
-        c.shadowBlur = 8;
-        c.fill();
-        c.restore();
-
-        c.restore();
-      },
-    };
-
-    const chart = new Chart(ctx, {
-      type: 'scatter',
-      data: {
-        datasets: [
-          // 0: Outer Boundary Ring (R = 1.0)
-          {
-            label: 'Boundary Ring',
-            data: outerRing,
-            showLine: true,
-            borderColor: 'rgba(26, 152, 91, 0.5)',
-            borderWidth: 1.5,
-            pointRadius: 0,
-            fill: false,
-          },
-          // 1: Inner Ring 75%
-          {
-            label: 'Ring 75%',
-            data: ring75,
-            showLine: true,
-            borderColor: 'rgba(26, 152, 91, 0.2)',
-            borderWidth: 1,
-            borderDash: [3, 3],
-            pointRadius: 0,
-            fill: false,
-          },
-          // 2: Inner Ring 50%
-          {
-            label: 'Ring 50%',
-            data: ring50,
-            showLine: true,
-            borderColor: 'rgba(26, 152, 91, 0.25)',
-            borderWidth: 1,
-            borderDash: [3, 3],
-            pointRadius: 0,
-            fill: false,
-          },
-          // 3: Inner Ring 25%
-          {
-            label: 'Ring 25%',
-            data: ring25,
-            showLine: true,
-            borderColor: 'rgba(26, 152, 91, 0.2)',
-            borderWidth: 1,
-            borderDash: [3, 3],
-            pointRadius: 0,
-            fill: false,
-          },
-          // 4: Coordinate Axes
-          {
-            label: 'Axes',
-            data: [
-              { x: -1.15, y: 0 },
-              { x: 1.15, y: 0 },
-              { x: null, y: null },
-              { x: 0, y: -1.15 },
-              { x: 0, y: 1.15 },
-            ],
-            showLine: true,
-            borderColor: 'rgba(26, 152, 91, 0.3)',
-            borderWidth: 1,
-            pointRadius: 0,
-            fill: false,
-          },
-          // 5: Green Hand (Nominal Reference Phasor - Constant Magnitude)
-          {
-            label: 'Nominal Reference (Constant)',
-            data: [
-              { x: 0, y: 0 },
-              { x: 0, y: PHASOR_RADIUS },
-            ],
-            showLine: true,
-            borderColor: '#10b981',
-            borderWidth: 2.5,
-            pointRadius: 0,
-            fill: false,
-          },
-          // 6: Red Hand (Clock Error Deviated Phasor)
-          {
-            label: 'Clock Error Phasor',
-            data: [
-              { x: 0, y: 0 },
-              { x: 0, y: 0 },
-            ],
-            showLine: true,
-            borderColor: '#ef4444',
-            borderWidth: 2,
-            borderDash: [4, 2],
-            pointRadius: 0,
-            fill: false,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        aspectRatio: 1,
-        animation: false,
-        events: [],
-        layout: {
-          padding: 12,
-        },
-        scales: {
-          x: {
-            min: -1.25,
-            max: 1.25,
-            display: false,
-          },
-          y: {
-            min: -1.25,
-            max: 1.25,
-            display: false,
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false },
-        },
-      },
-      plugins: [phasorVisualsPlugin],
-    });
-
-    chartRef.current = chart;
-
-    return () => {
-      chart.destroy();
-      chartRef.current = null;
-    };
-  }, []);
-
-  // Update chart phasor hands to specified rotation angle and clock error
-  const renderPhasorHands = (theta, err, maxErr) => {
-    if (!chartRef.current) return;
-    const chart = chartRef.current;
-
-    // Clockwise rotation from 12 o'clock: x = sin(theta), y = cos(theta)
-    const xGreen = PHASOR_RADIUS * Math.sin(theta);
-    const yGreen = PHASOR_RADIUS * Math.cos(theta);
-
-    if (chart.data.datasets[5]) {
-      chart.data.datasets[5].data[1] = { x: xGreen, y: yGreen };
-    }
-
-    // Red hand: clockwise with phase offset based on clock error
-    const normMagnitude = Math.min(1.0, Math.max(0.1, Math.abs(err) / maxErr));
-    const phaseShift = (err / maxErr) * (Math.PI / 2); // Phase lead/lag
-    const thetaRed = theta + phaseShift;
-
-    const xRed = normMagnitude * PHASOR_RADIUS * Math.sin(thetaRed);
-    const yRed = normMagnitude * PHASOR_RADIUS * Math.cos(thetaRed);
-
-    if (chart.data.datasets[6]) {
-      chart.data.datasets[6].data[1] = { x: xRed, y: yRed };
-    }
-
-    chart.update('none');
+  valuesRef.current = {
+    currentClockMeters,
+    actualClockMeters,
+    maxClockErrorMeters,
   };
 
-  // Animation loop driving clockwise rotation completing 1 circle in 7 seconds.
-  // Pauses strictly with the timeline when isPlaying is false.
+  // Draw pure 2D phasor diagram
+  const drawPhasor = (baseTheta) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Reset transform
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cssW = width / dpr;
+    const cssH = height / dpr;
+
+    // Clear background
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const cx = cssW / 2;
+    const cy = cssH / 2;
+    const dialRadius = Math.max(20, Math.min(cssW, cssH) / 2 - 28);
+
+    const {
+      currentClockMeters: curM,
+      actualClockMeters: actM,
+      maxClockErrorMeters: maxM,
+    } = valuesRef.current;
+
+    // 1. Draw 2D Polar Grid / Dial
+    ctx.save();
+
+    // Outer dial circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, dialRadius, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(30, 58, 138, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 50% radius inner circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, dialRadius * 0.5, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Crosshairs
+    ctx.beginPath();
+    ctx.moveTo(cx - dialRadius * 1.06, cy);
+    ctx.lineTo(cx + dialRadius * 1.06, cy);
+    ctx.moveTo(cx, cy - dialRadius * 1.06);
+    ctx.lineTo(cx, cy + dialRadius * 1.06);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Cardinal tick labels (0° top, 90° right, 180° bottom, 270° left)
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillText('0°', cx, cy - dialRadius - 14);
+    ctx.fillText('90°', cx + dialRadius + 14, cy);
+    ctx.fillText('180°', cx, cy + dialRadius + 14);
+    ctx.fillText('270°', cx - dialRadius - 14, cy);
+
+    // 2. Compute 2D Arrow Angles & Magnitudes
+    // In canvas coordinates: 0 is at top (12 o'clock), clockwise angle theta
+    // x = cx + L * sin(theta), y = cy - L * cos(theta)
+
+    // Green Arrow (Actual or Nominal Reference)
+    let normMagGreen = 1.0;
+    let phaseShiftGreen = 0;
+    if (actM !== null) {
+      normMagGreen = Math.min(1.0, Math.max(0.2, Math.abs(actM) / maxM));
+      phaseShiftGreen = (actM / maxM) * (Math.PI / 2);
+    }
+    const thetaGreen = baseTheta + phaseShiftGreen;
+    const lenGreen = dialRadius * 0.88 * normMagGreen;
+    const tipGreenX = cx + lenGreen * Math.sin(thetaGreen);
+    const tipGreenY = cy - lenGreen * Math.cos(thetaGreen);
+
+    // Red Arrow (Predicted Clock Error)
+    const normMagRed = Math.min(1.0, Math.max(0.2, Math.abs(curM) / maxM));
+    const phaseShiftRed = (curM / maxM) * (Math.PI / 2);
+    const thetaRed = baseTheta + phaseShiftRed;
+    const lenRed = dialRadius * 0.88 * normMagRed;
+    const tipRedX = cx + lenRed * Math.sin(thetaRed);
+    const tipRedY = cy - lenRed * Math.cos(thetaRed);
+
+    // 3. Subtraction in their angle: Δθ = thetaRed - thetaGreen
+    let deltaTheta = (thetaRed - thetaGreen) % (2 * Math.PI);
+    if (deltaTheta > Math.PI) deltaTheta -= 2 * Math.PI;
+    if (deltaTheta < -Math.PI) deltaTheta += 2 * Math.PI;
+
+    const deltaDeg = (deltaTheta * 180) / Math.PI;
+
+    // Draw angular subtraction arc and shaded sector if angular separation exists
+    if (Math.abs(deltaTheta) > 0.02) {
+      ctx.save();
+      const arcR = dialRadius * 0.42;
+
+      // In canvas standard arc coords (0 is 3 o'clock):
+      // Clockwise from 12 o'clock means angle in standard arc is (theta - Math.PI / 2)
+      const standardGreen = thetaGreen - Math.PI / 2;
+      const standardRed = thetaRed - Math.PI / 2;
+      const counterClockwise = deltaTheta < 0;
+
+      // Shaded sector between the two arrows
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, arcR, standardGreen, standardRed, counterClockwise);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+      ctx.fill();
+
+      // Angular dimension arc
+      ctx.beginPath();
+      ctx.arc(cx, cy, arcR, standardGreen, standardRed, counterClockwise);
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Angular subtraction label: Δθ
+      const midTheta = thetaGreen + deltaTheta * 0.5;
+      const labelR = arcR * 1.35;
+      const labelX = cx + labelR * Math.sin(midTheta);
+      const labelY = cy - labelR * Math.cos(midTheta);
+
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.fillStyle = '#fbbf24';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`Δθ:${deltaDeg >= 0 ? '+' : ''}${deltaDeg.toFixed(1)}°`, labelX, labelY);
+
+      ctx.restore();
+    }
+
+    // Helper to draw 2D vector arrow with sharp arrowhead
+    function draw2DArrow(startX, startY, endX, endY, color, width = 3, arrowSize = 10, label = '') {
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const angle = Math.atan2(dy, dx);
+      const len = Math.hypot(dx, dy);
+      if (len < 5) return;
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+
+      // Arrow shaft
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      // Arrowhead
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle - Math.PI / 6),
+        endY - arrowSize * Math.sin(angle - Math.PI / 6),
+      );
+      ctx.lineTo(
+        endX - (arrowSize * 0.6) * Math.cos(angle),
+        endY - (arrowSize * 0.6) * Math.sin(angle),
+      );
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle + Math.PI / 6),
+        endY - arrowSize * Math.sin(angle + Math.PI / 6),
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      // Label near arrow tip
+      if (label) {
+        ctx.font = 'bold 10px "Courier New", monospace';
+        const lx = endX + 12 * Math.cos(angle);
+        const ly = endY + 12 * Math.sin(angle);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, lx, ly);
+      }
+
+      ctx.restore();
+    }
+
+    // 4. Draw Arrow 1: Green Reference / Actual Vector
+    draw2DArrow(
+      cx,
+      cy,
+      tipGreenX,
+      tipGreenY,
+      '#10b981',
+      3.5,
+      12,
+      actM !== null ? 'ACT' : 'REF',
+    );
+
+    // 5. Draw Arrow 2: Red Predicted Clock Vector
+    draw2DArrow(
+      cx,
+      cy,
+      tipRedX,
+      tipRedY,
+      '#ef4444',
+      3.0,
+      11,
+      'PRED',
+    );
+
+    // 6. Glowing center origin pivot dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = '#f6ff00';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.restore();
+  };
+
+  // Resize canvas according to container dimensions and devicePixelRatio
+  useEffect(() => {
+    const handleResize = () => {
+      const container = containerRef.current;
+      const canvas = canvasRef.current;
+      if (!container || !canvas) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(100, Math.floor(rect.width));
+      const h = Math.max(100, Math.floor(rect.height));
+
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+
+      drawPhasor(rotationAngleRef.current);
+    };
+
+    handleResize();
+    const observer = new ResizeObserver(handleResize);
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Animation frame loop driving smooth 2D spinning rotation (1 circle every 7s)
   useEffect(() => {
     if (!isPlaying) {
-      // While paused, keep hands frozen at current rotation angle
-      renderPhasorHands(
-        rotationAngleRef.current,
-        currentClockErrorRef.current,
-        maxClockErrorRef.current || BASE_MAX_ERROR,
-      );
+      drawPhasor(rotationAngleRef.current);
       return undefined;
     }
 
     let animId;
     lastTimeRef.current = performance.now();
 
-    function frame(now) {
+    function step(now) {
       const deltaSec = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
-      // Clockwise rotation completing in 7 seconds (fixed 7:1.6 ratio, unsynced from speedup)
+      // Clockwise rotation completing in 7 seconds
       rotationAngleRef.current =
-        (rotationAngleRef.current + (2 * Math.PI * deltaSec) / NOMINAL_PERIOD) % (2 * Math.PI);
+        (rotationAngleRef.current + (2 * Math.PI * deltaSec) / NOMINAL_PERIOD_SECONDS) %
+        (2 * Math.PI);
 
-      renderPhasorHands(
-        rotationAngleRef.current,
-        currentClockErrorRef.current,
-        maxClockErrorRef.current || BASE_MAX_ERROR,
-      );
-
-      animId = requestAnimationFrame(frame);
+      drawPhasor(rotationAngleRef.current);
+      animId = requestAnimationFrame(step);
     }
 
-    animId = requestAnimationFrame(frame);
+    animId = requestAnimationFrame(step);
 
-    return () => {
-      cancelAnimationFrame(animId);
-    };
+    return () => cancelAnimationFrame(animId);
   }, [isPlaying]);
 
-  // If user scrubs the timeline slider while paused, update the red error hand immediately
+  // Scrubbing redraw when paused and error inputs change
   useEffect(() => {
     if (!isPlaying) {
-      renderPhasorHands(
-        rotationAngleRef.current,
-        currentClockError,
-        maxClockError || BASE_MAX_ERROR,
-      );
+      drawPhasor(rotationAngleRef.current);
     }
-  }, [isPlaying, currentClockError, maxClockError]);
+  }, [isPlaying, currentClockMeters, actualClockMeters, maxClockErrorMeters]);
 
   return (
-    <div className="phasor-container" aria-label="Clock error phasor diagram">
+    <div className="phasor-container" aria-label="2D Clock error phasor diagram">
       <header className="panel-header">
-        <span className="panel-header__title">Clock Error</span>
+        <span className="panel-header__title">2D Phasor · Clock Error</span>
       </header>
 
+      {/* HUD Telemetry in Nanoseconds (ns) and Angular Subtraction (Δθ) */}
       <div className="phasor-hud">
-        <span>MAX: ±{maxClockError.toFixed(2)}m</span>
-        <span className={Math.abs(currentClockError) > 0.001 ? 'phasor-hud__val--active' : ''}>
-          CURR: {currentClockError >= 0 ? '+' : ''}
-          {currentClockError.toFixed(2)}m
+        <span>MAX: ±{maxNs.toFixed(2)}ns</span>
+        <span className={Math.abs(predNs) > 0.001 ? 'phasor-hud__val--active' : ''}>
+          PRED: {predNs >= 0 ? '+' : ''}
+          {predNs.toFixed(2)}ns
         </span>
-        <span>7s CYCLE</span>
+        {actNs !== null && (
+          <span style={{ color: '#10b981', fontWeight: 600 }}>
+            ACT: {actNs >= 0 ? '+' : ''}
+            {actNs.toFixed(2)}ns
+          </span>
+        )}
+        <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+          Δ: {deltaNs >= 0 ? '+' : ''}
+          {deltaNs.toFixed(2)}ns
+        </span>
       </div>
 
-      <div className="phasor-canvas-wrapper">
-        <canvas ref={canvasRef} className="phasor-canvas" />
+      <div ref={containerRef} className="phasor-canvas-wrapper" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <canvas ref={canvasRef} className="phasor-canvas" style={{ display: 'block', width: '100%', height: '100%' }} />
       </div>
 
       <div className="phasor-legend">
         <div className="phasor-legend__item">
           <span className="phasor-legend__dot phasor-legend__dot--green" />
-          <span>NOMINAL (7s)</span>
-          <span className="phasor-legend__dot phasor-legend__dot--red" style={{ marginLeft: 8 }} />
-          <span>CLOCK DEV</span>
+          <span>{actNs !== null ? 'ACT (ns)' : 'REF (7s)'}</span>
+          <span className="phasor-legend__dot phasor-legend__dot--red" style={{ marginLeft: 6 }} />
+          <span>PRED (ns)</span>
+          <span className="phasor-legend__dot" style={{ backgroundColor: '#f59e0b', marginLeft: 6 }} />
+          <span>Δθ SUBTRACTION</span>
         </div>
       </div>
     </div>

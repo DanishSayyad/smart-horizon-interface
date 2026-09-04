@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import MapModal from './MapModal';
+import CsvUploadModal from './CsvUploadModal';
 import Panel from './Panel';
 import SatelliteMap from './SatelliteMap';
 import SphereScene from './SphereScene';
@@ -21,6 +22,8 @@ import {
   samplePointsByInterval,
   parseCsvTimestampToMs,
   formatTimestampDdhhmmss,
+  detectIntervalFromPoints,
+  interpolateUnevenPointsByProgress,
 } from '../utils/csvParser';
 import { TriangulationEngine, precalculateTimelineRadii } from '../services/triangulationEngine';
 import { ERROR_SCALE_FACTOR } from '../config/simulation';
@@ -39,11 +42,18 @@ function DashboardLayout() {
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [address, setAddress] = useState('Select a point on the satellite map.');
 
-  // Backend / CSV states
+  // Backend / CSV states (7 Days Training)
   const [resultCsv, setResultCsv] = useState(null);
   const [csvData, setCsvData] = useState(null);
   const [isPredicting, setIsPredicting] = useState(false);
   const [inferenceStatus, setInferenceStatus] = useState('');
+
+  // 8th Day Testing CSV states (Ground Truth)
+  const [testCsvData, setTestCsvData] = useState(null);
+  const [testFileName, setTestFileName] = useState('No CSV selected');
+
+  // CSV Upload Pop-up Modal state
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
 
   // Animation states - pristine defaults, motionless until CSV is loaded
   const [progress, setProgress] = useState(0);
@@ -185,15 +195,14 @@ function DashboardLayout() {
     [source],
   );
 
-  async function handleFileChange(event) {
-    const selectedFile = event.target.files?.[0];
-
-    if (selectedFile) {
-      selectedFileRef.current = selectedFile;
-      setFileName(selectedFile.name);
+  const handleUploadTrainCsv = useCallback(
+    async (file) => {
+      if (!file) return;
+      selectedFileRef.current = file;
+      setFileName(file.name);
 
       let targetOrbit = source;
-      const upperName = selectedFile.name.toUpperCase();
+      const upperName = file.name.toUpperCase();
       if (upperName.includes('GEO') && !upperName.includes('MEO')) {
         targetOrbit = 'GEO';
         setSource('GEO');
@@ -202,7 +211,29 @@ function DashboardLayout() {
         setSource('MEO');
       }
 
-      await runInference(selectedFile, targetOrbit);
+      await runInference(file, targetOrbit);
+    },
+    [source, runInference],
+  );
+
+  const handleUploadTestCsv = useCallback((name, csvText) => {
+    setTestFileName(name);
+    const parsed = parseCSVToColumns(csvText);
+    setTestCsvData(parsed);
+
+    // Pick out the interval from the 8th day CSV and set that interval as the interface interval to proceed with
+    const pts = extractNormalizedPoints(parsed);
+    const detectedInterval = detectIntervalFromPoints(pts);
+    if (detectedInterval) {
+      setInterval(detectedInterval);
+    }
+  }, []);
+
+  async function handleFileChange(event) {
+    const selectedFile = event.target.files?.[0];
+
+    if (selectedFile) {
+      await handleUploadTrainCsv(selectedFile);
 
       if (event.target) {
         event.target.value = '';
@@ -345,6 +376,70 @@ function DashboardLayout() {
 
     return { currentPos: pos, currentTimestamp: timestamp, currentErrors: errors };
   }, [sampledPoints, curve, progress]);
+
+  // Extract all points from 8th Day Testing CSV data (ground truth)
+  const testAllPoints = useMemo(() => {
+    return extractNormalizedPoints(testCsvData);
+  }, [testCsvData]);
+
+  // Build 3D spline curve for actual trajectory using ERROR_SCALE_FACTOR
+  const { actualCurve } = useMemo(() => {
+    if (!testAllPoints || !testAllPoints.length) {
+      return { actualCurve: null };
+    }
+
+    const vectors = testAllPoints.map(
+      (pt) =>
+        new THREE.Vector3(
+          (pt.x || 0) * ERROR_SCALE_FACTOR,
+          (pt.y || 0) * ERROR_SCALE_FACTOR,
+          (pt.z || 0) * ERROR_SCALE_FACTOR,
+        ),
+    );
+
+    if (vectors.length < 2) {
+      return { actualCurve: null };
+    }
+
+    const catmullCurve = new THREE.CatmullRomCurve3(vectors, false, 'centripetal', 0.5);
+    return { actualCurve: catmullCurve };
+  }, [testAllPoints]);
+
+  // Interpolate current actual satellite position and actual errors based on progress.
+  // Handles uneven/irregular intervals in the 8th day CSV, mapping them continuously to the timeline.
+  const { currentActualPos, currentActualErrors } = useMemo(() => {
+    if (!testAllPoints || !testAllPoints.length) {
+      return {
+        currentActualPos: new THREE.Vector3(0, 0, 0),
+        currentActualErrors: null,
+      };
+    }
+
+    const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const interp = interpolateUnevenPointsByProgress(testAllPoints, safeProgress);
+
+    if (!interp) {
+      return {
+        currentActualPos: new THREE.Vector3(0, 0, 0),
+        currentActualErrors: null,
+      };
+    }
+
+    const pos = new THREE.Vector3(
+      (interp.x || 0) * ERROR_SCALE_FACTOR,
+      (interp.y || 0) * ERROR_SCALE_FACTOR,
+      (interp.z || 0) * ERROR_SCALE_FACTOR,
+    );
+
+    const errors = {
+      x: interp.x || 0,
+      y: interp.y || 0,
+      z: interp.z || 0,
+      clock: typeof interp.clock === 'number' ? interp.clock : Number(interp.clock) || 0,
+    };
+
+    return { currentActualPos: pos, currentActualErrors: errors };
+  }, [testAllPoints, progress]);
 
   // Compute total duration of CSV data in seconds from timestamps or interval fallback
   const totalSimulationSeconds = useMemo(() => {
@@ -523,7 +618,11 @@ function DashboardLayout() {
       >
         <aside className="sidebar">
           <div className="controls-row" aria-label="Top controls">
-            <button className="control control--wide" type="button" onClick={openFilePicker}>
+            <button
+              className="control control--wide"
+              type="button"
+              onClick={() => setIsCsvModalOpen(true)}
+            >
               Input CSV
             </button>
             <label className="control control--wide select-control">
@@ -537,7 +636,14 @@ function DashboardLayout() {
             </label>
           </div>
 
-          <p className="file-name">File name: {fileName}</p>
+          <p className="file-name" title={fileName}>
+            Train: {fileName}
+          </p>
+          {testFileName && testFileName !== 'No CSV selected' && (
+            <p className="file-name" title={testFileName} style={{ color: '#10b981', marginTop: -4 }}>
+              Test: {testFileName}
+            </p>
+          )}
           {inferenceStatus && (
             <p
               className={`inference-status${
@@ -611,9 +717,12 @@ function DashboardLayout() {
             <SphereScene
               currentPos={currentPos}
               curve={curve}
+              currentActualPos={currentActualPos}
+              actualCurve={actualCurve}
               progress={progress}
               isPlaying={isPlaying}
               currentErrors={currentErrors}
+              currentActualErrors={currentActualErrors}
               formattedTimer={formattedTimer}
               source={source}
             />
@@ -639,7 +748,9 @@ function DashboardLayout() {
           <Panel className="right-panel right-panel--top" label="Clock error">
             <ClockErrorPhasor
               currentErrors={currentErrors}
+              actualErrors={currentActualErrors}
               sampledPoints={sampledPoints}
+              testSampledPoints={testAllPoints}
               allPoints={allPoints}
               isPlaying={isPlaying}
               progress={progress}
@@ -669,9 +780,12 @@ function DashboardLayout() {
                 <SphereScene
                   currentPos={currentPos}
                   curve={curve}
+                  currentActualPos={currentActualPos}
+                  actualCurve={actualCurve}
                   progress={progress}
                   isPlaying={isPlaying}
                   currentErrors={currentErrors}
+                  currentActualErrors={currentActualErrors}
                   formattedTimer={formattedTimer}
                   source={source}
                 />
@@ -761,6 +875,17 @@ function DashboardLayout() {
           selectedLocation={selectedLocation}
         />
       )}
+      <CsvUploadModal
+        isOpen={isCsvModalOpen}
+        onClose={() => setIsCsvModalOpen(false)}
+        onUploadTrain={handleUploadTrainCsv}
+        onUploadTest={handleUploadTestCsv}
+        trainFileName={fileName}
+        testFileName={testFileName}
+        isPredicting={isPredicting}
+        inferenceStatus={inferenceStatus}
+        testRowCount={testAllPoints.length}
+      />
     </main>
   );
 }

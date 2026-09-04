@@ -433,6 +433,234 @@ button.control:focus-visible {
 }
 
 /* ==========================================================================
+   CSV Dual Upload Modal
+   ========================================================================== */
+.csv-modal-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(6, 9, 19, 0.88);
+  backdrop-filter: blur(6px);
+}
+
+.csv-modal {
+  display: flex;
+  width: min(680px, 100%);
+  max-height: 90vh;
+  flex-direction: column;
+  border: var(--border-thickness) solid var(--border-color-glow);
+  border-radius: var(--border-radius);
+  background: var(--card-bg);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(59, 130, 246, 0.25);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.csv-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: var(--border-thickness) solid var(--border-color);
+  background: var(--card-bg-elevated);
+}
+
+.csv-modal__header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+
+.csv-modal__close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--border-radius-sm);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.csv-modal__close:hover {
+  color: #fff;
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.csv-modal__body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.csv-modal__description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.csv-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.csv-modal__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--card-bg-elevated);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.csv-modal__card--active {
+  border-color: var(--border-color-glow);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+}
+
+.csv-modal__card-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  width: fit-content;
+  text-transform: uppercase;
+}
+
+.csv-modal__card-tag--train {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.csv-modal__card-tag--test {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.csv-modal__card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-color);
+}
+
+.csv-modal__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color-glow);
+  border-radius: var(--border-radius-sm);
+  background: var(--card-bg-hover);
+  color: var(--text-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 4px;
+}
+
+.csv-modal__btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.csv-modal__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.csv-modal__file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  padding-top: 4px;
+}
+
+.csv-modal__file-name {
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.csv-modal__file-status {
+  color: var(--text-muted);
+}
+
+.csv-modal__file-status--success {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.csv-modal__file-status--loading {
+  color: #fbbf24;
+}
+
+.csv-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--card-bg-elevated);
+}
+
+.csv-modal__footer-btn {
+  padding: 8px 24px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.csv-modal__footer-btn:hover {
+  border-color: var(--border-color-glow);
+  color: #fff;
+}
+
+.canvas-hud__coords-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.canvas-hud__coords--green {
+  color: #10b981;
+}
+
+/* ==========================================================================
    Panel 2 Layout
    ========================================================================== */
 .dashboard--panel2 {
@@ -620,4 +848,13 @@ button.control:focus-visible {
   .map-modal-backdrop {
     padding: 16px;
   }
+
+  .csv-modal-backdrop {
+    padding: 12px;
+  }
+
+  .csv-modal__grid {
+    grid-template-columns: 1fr;
+  }
 }
+

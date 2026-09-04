@@ -75,9 +75,12 @@ function ResponsiveCamera() {
 function SphereScene({
   currentPos = new THREE.Vector3(0, 0, 0),
   curve = null,
+  currentActualPos = new THREE.Vector3(0, 0, 0),
+  actualCurve = null,
   progress = 0,
   isPlaying = true,
   currentErrors = null,
+  currentActualErrors = null,
   formattedTimer = '00:00:00:00',
   source = 'MEO',
 }) {
@@ -97,13 +100,22 @@ function SphereScene({
             <span className="hud-tag hud-tag--green">● Actual</span>
             <span className="hud-tag hud-tag--red">● Deviated</span>
           </div>
-          {currentErrors && (
-            <span className="canvas-hud__coords">
-              [{currentErrors.x >= 0 ? '+' : ''}{currentErrors.x.toFixed(1)},{' '}
-              {currentErrors.y >= 0 ? '+' : ''}{currentErrors.y.toFixed(1)},{' '}
-              {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(1)}]m
-            </span>
-          )}
+          <div className="canvas-hud__coords-group">
+            {currentActualErrors && (
+              <span className="canvas-hud__coords canvas-hud__coords--green" title="Actual Telemetry Error">
+                ACT: [{currentActualErrors.x >= 0 ? '+' : ''}{currentActualErrors.x.toFixed(1)},{' '}
+                {currentActualErrors.y >= 0 ? '+' : ''}{currentActualErrors.y.toFixed(1)},{' '}
+                {currentActualErrors.z >= 0 ? '+' : ''}{currentActualErrors.z.toFixed(1)}]m
+              </span>
+            )}
+            {currentErrors && (
+              <span className="canvas-hud__coords" title="Deviated Predicted Error">
+                {currentActualErrors ? 'PRED: ' : ''}[{currentErrors.x >= 0 ? '+' : ''}{currentErrors.x.toFixed(1)},{' '}
+                {currentErrors.y >= 0 ? '+' : ''}{currentErrors.y.toFixed(1)},{' '}
+                {currentErrors.z >= 0 ? '+' : ''}{currentErrors.z.toFixed(1)}]m
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Top-Right Simulation UTC Timer in dd:hh:mm:ss format */}
@@ -122,7 +134,7 @@ function SphereScene({
 
         <ResponsiveCamera />
 
-        {/* OrbitControls: Rotation locked to green satellite at origin, polar angle clamped above horizon */}
+        {/* OrbitControls: Rotation locked to origin frame, polar angle clamped above horizon */}
         <OrbitControls
           makeDefault
           target={[0, 0, 0]}
@@ -146,6 +158,8 @@ function SphereScene({
         <SpaceTrails
           currentPos={currentPos}
           curve={curve}
+          currentActualPos={currentActualPos}
+          actualCurve={actualCurve}
           progress={progress}
           isPlaying={isPlaying}
           earthRadius={45.0}
@@ -164,9 +178,9 @@ function SphereScene({
             isLocked={source === 'GEO'}
           />
 
-          {/* Actual Satellite: Green outlined model at origin (fixed size, never resizes on CSV input) */}
+          {/* Actual Satellite: Green outlined model at currentActualPos (plots 8th-day trajectory when provided) */}
           <SatelliteModel
-            position={[0, 0, 0]}
+            position={[currentActualPos.x || 0, currentActualPos.y || 0, currentActualPos.z || 0]}
             unitSize={1.9 / 7}
             color="#10b981"
             scaleFactor={3.6}

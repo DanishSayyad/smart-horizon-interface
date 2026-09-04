@@ -1,0 +1,394 @@
+/* ═══════════════════════════════════════════════════════════════
+   GNSS SISE Predictor — Neutral Professional Theme v3
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: #000000;
+  color: #d0d8e8;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+
+#header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 28px;
+  background: linear-gradient(180deg, rgba(13,15,26,0.96) 0%,
+    rgba(13,15,26,0.55) 70%, transparent 100%);
+  pointer-events: none;
+}
+
+#header * { pointer-events: auto; }
+
+#header h1 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #e8edf5;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 0.68rem;
+  color: #5a6880;
+  margin-top: 3px;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+}
+
+/* ── Constellation Badges ─────────────────────────────────── */
+
+.constellation-badges { display: flex; gap: 7px; }
+
+.badge {
+  padding: 5px 13px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #6a7890;
+  user-select: none;
+  letter-spacing: 0.05em;
+}
+
+.badge.active { color: #d0d8e8; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+.badge:hover  { background: rgba(255,255,255,0.1); }
+
+.badge .count { margin-left: 4px; opacity: 0.6; font-weight: 500; }
+
+/* ── Globe ────────────────────────────────────────────────── */
+
+#globe-container { width: 100vw; height: 100vh; }
+
+/* ── Panels ───────────────────────────────────────────────── */
+
+.panel {
+  position: fixed;
+  right: 22px;
+  top: 76px;
+  width: 320px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  background: rgba(13,17,30,0.96);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  padding: 22px;
+  z-index: 200;
+  transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), opacity 0.3s ease;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.panel.hidden { transform: translateX(380px); opacity: 0; pointer-events: none; }
+
+.panel-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none;
+  color: #445566; font-size: 1.3rem;
+  cursor: pointer; transition: color 0.2s;
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+}
+.panel-close:hover { color: #aabbcc; background: rgba(255,255,255,0.05); }
+
+/* Satellite panel header */
+.panel-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.sat-id {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.01em;
+  color: #e0e8f4;
+}
+
+.sat-badge {
+  font-size: 0.6rem; font-weight: 600;
+  padding: 3px 10px; border-radius: 5px;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  background: rgba(255,255,255,0.06);
+  color: #8899aa;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Meta grid */
+.meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.meta-item { display: flex; flex-direction: column; gap: 4px; }
+
+.meta-label {
+  font-size: 0.58rem; color: #4a5a6e;
+  text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600;
+}
+
+.meta-value { font-size: 0.8rem; font-weight: 500; color: #b0bcd0; }
+.meta-value.highlight {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600; font-size: 0.88rem;
+  color: #a8c4dc;
+}
+
+.class-badge {
+  display: inline-block;
+  padding: 2px 9px; border-radius: 5px;
+  font-size: 0.68rem; font-weight: 600;
+}
+
+/* Broadcast */
+.broadcast-section {
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding-top: 16px; margin-top: 2px;
+}
+
+.broadcast-section + .broadcast-section { margin-top: 14px; }
+
+.broadcast-section h3 {
+  font-size: 0.7rem; font-weight: 600;
+  margin-bottom: 12px; color: #5a6e84;
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+
+.broadcast-data { display: flex; flex-direction: column; gap: 10px; }
+
+.broadcast-row {
+  display: flex; justify-content: space-between;
+  align-items: flex-start; font-size: 0.68rem; gap: 8px;
+}
+.broadcast-row span:first-child { color: #4a5a6e; font-weight: 500; flex-shrink: 0; }
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.63rem; color: #8899aa; text-align: right;
+}
+
+/* ── GPS Demo Panel ───────────────────────────────────────── */
+
+.gps-panel {
+  right: 22px; bottom: 82px; top: auto;
+  width: 400px; max-height: none;
+}
+.gps-panel.hidden { transform: translateY(100px); }
+
+.gps-title { font-size: 0.88rem; font-weight: 600; color: #c0cce0; margin-bottom: 4px; }
+
+.gps-comparison {
+  display: flex; align-items: stretch; gap: 10px; margin: 16px 0;
+}
+
+.gps-card {
+  flex: 1; padding: 14px; border-radius: 10px;
+}
+.gps-card.error     { background: rgba(180,70,70,0.1);  border: 1px solid rgba(180,70,70,0.2);  }
+.gps-card.corrected { background: rgba(60,120,160,0.1); border: 1px solid rgba(60,120,160,0.2); }
+
+.gps-label {
+  font-weight: 600; margin-bottom: 8px;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.gps-card.error .gps-label     { color: #c07070; }
+.gps-card.corrected .gps-label { color: #6090b0; }
+
+.gps-arrow { font-size: 1.4rem; color: #2a3a4a; display: flex; align-items: center; }
+
+.offset { margin-top: 8px; font-size: 0.7rem; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.error-offset     { color: #c07070; }
+.corrected-offset { color: #6aaccc; }
+
+.btn-correct {
+  width: 100%; padding: 12px; border: none; border-radius: 10px;
+  background: rgba(50,80,130,0.7);
+  color: #c8d8e8;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  transition: all 0.25s ease;
+  border: 1px solid rgba(80,120,180,0.3);
+  letter-spacing: 0.01em;
+}
+.btn-correct:hover { background: rgba(60,100,160,0.8); color: #e0ecf8; }
+.btn-correct.applied { background: rgba(40,100,80,0.7); border-color: rgba(60,150,110,0.3); cursor: default; color: #90d8b8; }
+
+/* ── Trilateration Panel ──────────────────────────────────── */
+
+#tril-panel {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  background: rgba(10,14,26,0.95);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  padding: 14px 26px 13px;
+  text-align: center;
+  min-width: 480px;
+  max-width: 640px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+#tril-panel.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(18px);
+  pointer-events: none;
+}
+
+.tril-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.tril-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255,255,255,0.14);
+  transition: all 0.4s ease;
+  flex-shrink: 0;
+}
+
+.tril-dot.done    { background: rgba(100,160,200,0.35); border-color: rgba(100,160,200,0.7); }
+.tril-dot.current { background: #7aaed4; border-color: #7aaed4; transform: scale(1.25); }
+.tril-dot.lock    { font-size: 0.75rem; background:transparent; border:none; width:16px; }
+
+.tril-line {
+  width: 28px; height: 1.5px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  transition: background 0.4s ease;
+}
+.tril-line.done { background: rgba(100,160,200,0.4); }
+
+.tril-status {
+  font-size: 0.75rem; color: #7a8ea8; line-height: 1.55; margin: 0;
+}
+.tril-status b { color: #b8cce0; font-weight: 600; }
+
+/* ── Stats Bar ────────────────────────────────────────────── */
+
+#stats-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  display: flex; justify-content: center; gap: 44px;
+  padding: 14px 24px;
+  background: rgba(8,10,20,0.95);
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+
+.stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+.stat-value {
+  font-size: 1.08rem; font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: #7aaed4;
+  letter-spacing: -0.01em;
+}
+
+.stat-label {
+  font-size: 0.56rem; color: #3a4e60;
+  text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600;
+}
+
+/* ── Speed Control ────────────────────────────────────────── */
+
+#speed-control {
+  position: fixed; bottom: 72px; left: 22px; z-index: 100;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: rgba(10,14,26,0.88);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+#speed-control label {
+  font-size: 0.58rem; color: #4a5e72;
+  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+}
+
+#speed-slider { width: 100px; height: 3px; accent-color: #5a8ab0; cursor: pointer; }
+
+/* ── Tooltip ──────────────────────────────────────────────── */
+
+#tooltip {
+  position: fixed; bottom: 76px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  padding: 9px 20px;
+  background: rgba(10,14,26,0.88);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  font-size: 0.68rem; color: #6a7e94; white-space: nowrap;
+  transition: opacity 1s ease; pointer-events: none;
+}
+#tooltip.fade-out { opacity: 0; }
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+.panel::-webkit-scrollbar { width: 3px; }
+.panel::-webkit-scrollbar-track { background: transparent; }
+.panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 3px; }
+
+/* ── Tril step labels ─────────────────────────────────────── */
+.step-label {
+  font-size: 0.58rem; color: #3a5060;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  margin-bottom: 6px; font-weight: 600;
+}
+
+/* ── Floating nameplate overlay (single div, follows cursor) ── */
+/* Styled inline via JS — this just adds transition */
+#nameplate-overlay {
+  transition: opacity 0.12s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ── Embedded Mode (inside dashboard Panel 2) ─────────────── */
+.embedded #header,
+.embedded #stats-bar,
+.embedded #tooltip {
+  display: none !important;
+}
+
+.embedded #speed-control {
+  bottom: 14px !important;
+  left: 14px !important;
+  position: absolute !important;
+}
+
+.embedded #tril-panel {
+  bottom: 14px !important;
+  position: absolute !important;
+  min-width: 320px !important;
+  max-width: 90% !important;
+  padding: 10px 18px !important;
+}
+
+.embedded .panel {
+  top: 14px !important;
+  right: 14px !important;
+  position: absolute !important;
+  max-height: calc(100% - 28px) !important;
+  width: 270px !important;
+  padding: 16px !important;
+}

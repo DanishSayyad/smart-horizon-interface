@@ -1,0 +1,4 @@
+# This is a static HTML/JS/CSS frontend application.
+# No external Python dependencies are required for the web app itself.
+# You can serve the project locally using Python's built-in http.server:
+# python3 -m http.server 8080

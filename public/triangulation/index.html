@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GNSS SISE Predictor</title>
+  <meta name="description" content="Physics-informed satellite error forecasting with interactive 3D visualization">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    if (window.self !== window.top || new URLSearchParams(window.location.search).get('embed') === '1') {
+      document.documentElement.classList.add('embedded');
+    }
+  </script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header id="header">
+    <div class="header-left">
+      <h1>GNSS SISE Predictor</h1>
+      <p class="subtitle">Physics-Informed Satellite Error Forecasting</p>
+    </div>
+    <div class="header-right">
+      <div class="constellation-badges">
+        <span class="badge gps active" data-constellation="GPS">GPS <span class="count">32</span></span>
+        <span class="badge galileo active" data-constellation="Galileo">GAL <span class="count">8</span></span>
+        <span class="badge beidou active" data-constellation="BeiDou">BDS <span class="count">10</span></span>
+        <span class="badge glonass active" data-constellation="GLONASS">GLO <span class="count">8</span></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Globe -->
+  <div id="globe-container"></div>
+
+  <!-- ── Satellite Info Panel ── -->
+  <div id="sat-panel" class="panel hidden">
+    <button class="panel-close" id="btn-close-sat">&times;</button>
+
+    <div class="panel-header">
+      <span id="sat-id" class="sat-id">—</span>
+      <span id="sat-constellation" class="sat-badge">—</span>
+    </div>
+
+    <div class="panel-body">
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">Orbit Type</span>
+          <span id="sat-orbit" class="meta-value">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Clock Type</span>
+          <span id="sat-clock" class="meta-value">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Block</span>
+          <span id="sat-block" class="meta-value">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Classification</span>
+          <span id="sat-class" class="meta-value class-badge">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Model Assigned</span>
+          <span id="sat-model" class="meta-value">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Current SISE</span>
+          <span id="sat-sise" class="meta-value highlight">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Orbital Period</span>
+          <span id="sat-period" class="meta-value mono">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Altitude</span>
+          <span id="sat-altitude-val" class="meta-value mono">—</span>
+        </div>
+      </div>
+
+      <!-- Live broadcast -->
+      <div class="broadcast-section">
+        <h3>Live Broadcast</h3>
+        <div class="broadcast-data">
+          <div class="broadcast-row">
+            <span>ECEF Position</span>
+            <span id="sat-pos" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Clock Bias</span>
+            <span id="sat-clockbias" class="mono">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Broadcast Ephemeris -->
+      <div class="broadcast-section">
+        <h3>Broadcast Ephemeris</h3>
+        <div class="broadcast-data">
+          <div class="broadcast-row">
+            <span>√a</span>
+            <span id="eph-sqrtA" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Eccentricity (e)</span>
+            <span id="eph-ecc" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Inclination (i₀)</span>
+            <span id="eph-i0" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Clock bias (af0)</span>
+            <span id="eph-af0" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Clock drift (af1)</span>
+            <span id="eph-af1" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>IODE</span>
+            <span id="eph-iode" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Time of Eph (toe)</span>
+            <span id="eph-toe" class="mono">—</span>
+          </div>
+          <div class="broadcast-row">
+            <span>Ω₀ (RAAN)</span>
+            <span id="eph-omega0" class="mono">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Trilateration Step Panel ── -->
+  <div id="tril-panel" class="tril-panel hidden">
+    <button class="panel-close" id="btn-close-gps">&times;</button>
+    <p class="step-label">Trilateration — How GPS works</p>
+    <div class="tril-steps">
+      <div class="tril-dot" title="Satellite 1"></div>
+      <div class="tril-line"></div>
+      <div class="tril-dot" title="Satellite 2"></div>
+      <div class="tril-line"></div>
+      <div class="tril-dot" title="Satellite 3"></div>
+      <div class="tril-line"></div>
+      <div class="tril-dot" title="Clock fix"></div>
+      <div class="tril-line"></div>
+      <div class="tril-dot lock" title="Locked">🔒</div>
+    </div>
+    <p id="tril-status" class="tril-status">—</p>
+  </div>
+
+  <!-- Stats Bar -->
+  <div id="stats-bar">
+    <div class="stat">
+      <span class="stat-value" id="stat-sats">58</span>
+      <span class="stat-label">Active Satellites</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">1.11 ns</span>
+      <span class="stat-label">Prediction MAE</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">0.37 m</span>
+      <span class="stat-label">Avg Range Error</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">98.2%</span>
+      <span class="stat-label">Satellite Coverage</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">0.8</span>
+      <span class="stat-label">Excess Kurtosis</span>
+    </div>
+  </div>
+
+  <!-- Speed Control -->
+  <div id="speed-control">
+    <label for="speed-slider">Orbit Speed</label>
+    <input type="range" id="speed-slider" min="0" max="100" value="30">
+  </div>
+
+  <!-- Tooltip -->
+  <div id="tooltip">Hover satellite for info &middot; Click satellite for details &middot; Click Earth for trilateration demo</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.32.0/dist/globe.gl.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

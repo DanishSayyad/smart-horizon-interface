@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 const DEFAULT_LOCATION = [20.5937, 78.9629];
-const MAXIMUM_ZOOM = 18;
+const MAP_ZOOM = 19; // Zoomed in via code to make both 7.5m inner and 11m outer circles clearly visible
 
 // Translucent satellite imagery layer
 const SATELLITE_TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
@@ -14,8 +14,6 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
   const centerMarkerRef = useRef(null);
   const outerCircleRef = useRef(null);
   const innerCircleRef = useRef(null);
-  const deviatedMarkerRef = useRef(null);
-  const correctedMarkerRef = useRef(null);
 
   const activeLocation = selectedLocation
     ? [selectedLocation.lat, selectedLocation.lng]
@@ -26,33 +24,33 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
     const leaflet = window.L;
     if (!leaflet || !mapContainerRef.current) return;
 
-    // Create map unpannable and locked at maximum zoom 18
+    // Create map unpannable and locked at calibrated zoom 19
     const map = leaflet.map(mapContainerRef.current, {
       attributionControl: false,
       boxZoom: false,
       doubleClickZoom: false,
       dragging: false, // Unpannable
       keyboard: false,
-      maxZoom: MAXIMUM_ZOOM,
-      minZoom: MAXIMUM_ZOOM,
+      maxZoom: 20,
+      minZoom: 16,
       scrollWheelZoom: false,
       touchZoom: false,
       zoomControl: false,
-    }).setView(activeLocation, MAXIMUM_ZOOM);
+    }).setView(activeLocation, MAP_ZOOM);
 
-    // Translucent satellite tile layer
+    // Translucent satellite tile layer (auto-upscaled from native zoom 18)
     leaflet.tileLayer(SATELLITE_TILE_URL, {
       attribution: TILE_ATTRIBUTION,
-      maxZoom: MAXIMUM_ZOOM,
-      maxNativeZoom: MAXIMUM_ZOOM,
+      maxZoom: 20,
+      maxNativeZoom: 18,
       className: 'translucent-satellite-tiles',
     }).addTo(map);
 
     // Subtle reference boundary/place labels layer
     leaflet.tileLayer(SATELLITE_LABELS_URL, {
       attribution: TILE_ATTRIBUTION,
-      maxZoom: MAXIMUM_ZOOM,
-      maxNativeZoom: MAXIMUM_ZOOM,
+      maxZoom: 20,
+      maxNativeZoom: 18,
       className: 'cyan-labels-layer',
     }).addTo(map);
 
@@ -74,9 +72,9 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
     }).addTo(map);
     centerMarkerRef.current = marker;
 
-    // Outer ring: uncorrected raw error solve (slightly bigger red ring)
+    // Outer ring: uncorrected raw error solve (slightly bigger red ring ~11m)
     const outerCircle = leaflet.circle(activeLocation, {
-      radius: 25,
+      radius: 11,
       color: '#ef4444',
       fillColor: 'rgba(239, 68, 68, 0.08)',
       fillOpacity: 0.1,
@@ -85,9 +83,9 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
     }).addTo(ringsGroup);
     outerCircleRef.current = outerCircle;
 
-    // Inner ring: error-corrected solve (green ring inside)
+    // Inner ring: error-corrected solve (reverted green ring inside ~7.5m)
     const innerCircle = leaflet.circle(activeLocation, {
-      radius: 2.2,
+      radius: 7.5,
       color: '#10b981',
       fillColor: 'rgba(16, 185, 129, 0.15)',
       fillOpacity: 0.2,
@@ -95,34 +93,6 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
       dashArray: '4, 4',
     }).addTo(ringsGroup);
     innerCircleRef.current = innerCircle;
-
-    // Deviated fix marker (unamplified raw coordinates)
-    const devIcon = leaflet.divIcon({
-      className: 'gnss-marker-container',
-      html: '<div class="gnss-marker-deviated" title="Deviated Fix"></div>',
-      iconSize: [14, 14],
-      iconAnchor: [7, 7],
-    });
-    const devMarker = leaflet.marker(activeLocation, {
-      icon: devIcon,
-      interactive: false,
-      keyboard: false,
-    }).addTo(ringsGroup);
-    deviatedMarkerRef.current = devMarker;
-
-    // Corrected fix marker (unamplified raw coordinates)
-    const corrIcon = leaflet.divIcon({
-      className: 'gnss-marker-container',
-      html: '<div class="gnss-marker-corrected" title="Corrected Fix"></div>',
-      iconSize: [12, 12],
-      iconAnchor: [6, 6],
-    });
-    const corrMarker = leaflet.marker(activeLocation, {
-      icon: corrIcon,
-      interactive: false,
-      keyboard: false,
-    }).addTo(ringsGroup);
-    correctedMarkerRef.current = corrMarker;
 
     mapInstanceRef.current = map;
 
@@ -132,26 +102,24 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
       centerMarkerRef.current = null;
       outerCircleRef.current = null;
       innerCircleRef.current = null;
-      deviatedMarkerRef.current = null;
-      correctedMarkerRef.current = null;
     };
   }, []);
 
-  // Update center, circles, and markers on activeLocation or engineOutput change
+  // Update center and circles on activeLocation or engineOutput change
   useEffect(() => {
     const leaflet = window.L;
     if (!leaflet || !mapInstanceRef.current) return;
 
-    // Center map view on active location
-    mapInstanceRef.current.setView(activeLocation, MAXIMUM_ZOOM, { animate: false });
+    // Center map view on active location at calibrated zoom 19
+    mapInstanceRef.current.setView(activeLocation, MAP_ZOOM, { animate: false });
 
     if (centerMarkerRef.current) {
       centerMarkerRef.current.setLatLng(activeLocation);
     }
 
-    // Radius values directly from simulation engine (unamplified)
-    const outerR = Math.max(1, engineOutput?.radius?.outer ?? 15);
-    const innerR = Math.max(0.5, engineOutput?.radius?.inner ?? 2);
+    // Radius values directly from simulation engine (calibrated to ~11m outer, ~7.5m inner)
+    const outerR = Math.max(1, engineOutput?.radius?.outer ?? 10.8);
+    const innerR = Math.max(0.3, engineOutput?.radius?.inner ?? 7.5);
 
     if (outerCircleRef.current) {
       outerCircleRef.current.setLatLng(activeLocation);
@@ -162,40 +130,17 @@ function TriangulationMap({ selectedLocation, engineOutput }) {
       innerCircleRef.current.setLatLng(activeLocation);
       innerCircleRef.current.setRadius(innerR);
     }
-
-    // Unamplified raw marker coordinates
-    const lat = activeLocation[0];
-    const lng = activeLocation[1];
-    const cosLat = Math.cos((lat * Math.PI) / 180) || 1;
-    const mToLat = 1 / 111320;
-    const mToLng = 1 / (111320 * cosLat);
-
-    if (deviatedMarkerRef.current) {
-      const devX = engineOutput?.deviatedFix?.x ?? 0;
-      const devY = engineOutput?.deviatedFix?.y ?? 0;
-      deviatedMarkerRef.current.setLatLng([lat + devY * mToLat, lng + devX * mToLng]);
-    }
-
-    if (correctedMarkerRef.current) {
-      const corrX = engineOutput?.correctedFix?.x ?? 0;
-      const corrY = engineOutput?.correctedFix?.y ?? 0;
-      correctedMarkerRef.current.setLatLng([lat + corrY * mToLat, lng + corrX * mToLng]);
-    }
   }, [
     activeLocation[0],
     activeLocation[1],
     engineOutput?.radius?.outer,
     engineOutput?.radius?.inner,
-    engineOutput?.deviatedFix?.x,
-    engineOutput?.deviatedFix?.y,
-    engineOutput?.correctedFix?.x,
-    engineOutput?.correctedFix?.y,
   ]);
 
-  const rawOffset = engineOutput?.rawDeviationOffset ?? 16.0;
-  const corrOffset = engineOutput?.correctedDeviationOffset ?? 2.2;
-  const outerR = engineOutput?.radius?.outer ?? 25.0;
-  const innerR = engineOutput?.radius?.inner ?? 2.2;
+  const rawOffset = engineOutput?.rawDeviationOffset ?? 10.8;
+  const corrOffset = engineOutput?.correctedDeviationOffset ?? 7.5;
+  const outerR = engineOutput?.radius?.outer ?? 10.8;
+  const innerR = engineOutput?.radius?.inner ?? 7.5;
   const mode = engineOutput?.mode ?? 'MEO';
   const period = engineOutput?.orbitalPeriod ?? (mode === 'GEO' ? 360 : 90);
 

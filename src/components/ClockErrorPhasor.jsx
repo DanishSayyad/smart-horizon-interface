@@ -318,57 +318,84 @@ function ClockErrorPhasor({
     };
   }, []);
 
-  // Animation loop driving clockwise rotation completing 1 circle in 7 seconds (unsynced from speedup)
+  // Update chart phasor hands to specified rotation angle and clock error
+  const renderPhasorHands = (theta, err, maxErr) => {
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
+
+    // Clockwise rotation from 12 o'clock: x = sin(theta), y = cos(theta)
+    const xGreen = PHASOR_RADIUS * Math.sin(theta);
+    const yGreen = PHASOR_RADIUS * Math.cos(theta);
+
+    if (chart.data.datasets[5]) {
+      chart.data.datasets[5].data[1] = { x: xGreen, y: yGreen };
+    }
+
+    // Red hand: clockwise with phase offset based on clock error
+    const normMagnitude = Math.min(1.0, Math.max(0.1, Math.abs(err) / maxErr));
+    const phaseShift = (err / maxErr) * (Math.PI / 2); // Phase lead/lag
+    const thetaRed = theta + phaseShift;
+
+    const xRed = normMagnitude * PHASOR_RADIUS * Math.sin(thetaRed);
+    const yRed = normMagnitude * PHASOR_RADIUS * Math.cos(thetaRed);
+
+    if (chart.data.datasets[6]) {
+      chart.data.datasets[6].data[1] = { x: xRed, y: yRed };
+    }
+
+    chart.update('none');
+  };
+
+  // Animation loop driving clockwise rotation completing 1 circle in 7 seconds.
+  // Pauses strictly with the timeline when isPlaying is false.
   useEffect(() => {
+    if (!isPlaying) {
+      // While paused, keep hands frozen at current rotation angle
+      renderPhasorHands(
+        rotationAngleRef.current,
+        currentClockErrorRef.current,
+        maxClockErrorRef.current || BASE_MAX_ERROR,
+      );
+      return undefined;
+    }
+
     let animId;
+    lastTimeRef.current = performance.now();
 
     function frame(now) {
       const deltaSec = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
-      // Clockwise rotation completing in 7 seconds (fixed 7:1.6 ratio, NOT accelerated by speedup)
+      // Clockwise rotation completing in 7 seconds (fixed 7:1.6 ratio, unsynced from speedup)
       rotationAngleRef.current =
         (rotationAngleRef.current + (2 * Math.PI * deltaSec) / NOMINAL_PERIOD) % (2 * Math.PI);
 
-      if (chartRef.current) {
-        const chart = chartRef.current;
-        const theta = rotationAngleRef.current;
-
-        // Clockwise rotation from 12 o'clock: x = sin(theta), y = cos(theta)
-        const xGreen = PHASOR_RADIUS * Math.sin(theta);
-        const yGreen = PHASOR_RADIUS * Math.cos(theta);
-
-        if (chart.data.datasets[5]) {
-          chart.data.datasets[5].data[1] = { x: xGreen, y: yGreen };
-        }
-
-        // Red hand: clockwise with phase offset based on clock error
-        const err = currentClockErrorRef.current;
-        const maxErr = maxClockErrorRef.current || BASE_MAX_ERROR;
-        const normMagnitude = Math.min(1.0, Math.max(0.1, Math.abs(err) / maxErr));
-        const phaseShift = (err / maxErr) * (Math.PI / 2); // Phase lead/lag
-        const thetaRed = theta + phaseShift;
-
-        const xRed = normMagnitude * PHASOR_RADIUS * Math.sin(thetaRed);
-        const yRed = normMagnitude * PHASOR_RADIUS * Math.cos(thetaRed);
-
-        if (chart.data.datasets[6]) {
-          chart.data.datasets[6].data[1] = { x: xRed, y: yRed };
-        }
-
-        chart.update('none');
-      }
+      renderPhasorHands(
+        rotationAngleRef.current,
+        currentClockErrorRef.current,
+        maxClockErrorRef.current || BASE_MAX_ERROR,
+      );
 
       animId = requestAnimationFrame(frame);
     }
 
-    lastTimeRef.current = performance.now();
     animId = requestAnimationFrame(frame);
 
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, []);
+  }, [isPlaying]);
+
+  // If user scrubs the timeline slider while paused, update the red error hand immediately
+  useEffect(() => {
+    if (!isPlaying) {
+      renderPhasorHands(
+        rotationAngleRef.current,
+        currentClockError,
+        maxClockError || BASE_MAX_ERROR,
+      );
+    }
+  }, [isPlaying, currentClockError, maxClockError]);
 
   return (
     <div className="phasor-container" aria-label="Clock error phasor diagram">

@@ -3,7 +3,56 @@ import Chart from 'chart.js/auto';
 import { precalculateTimelineRadii } from '../services/triangulationEngine';
 import { interpolateUnevenPointsByProgress } from '../utils/csvParser';
 
-const STATIC_SIM_STEPS = 60;
+const SAMPLES = 300;
+
+/**
+ * 1D Catmull-Rom spline interpolation through node values.
+ * Provides C1-continuous, smooth, curvature-continuous curves with zero sharp kinks.
+ */
+function interpolateCatmullRom1D(values, t) {
+  if (!values || !values.length) return 0;
+  const n = values.length;
+  if (n === 1) return values[0] || 0;
+
+  const clampedT = Math.max(0, Math.min(n - 1, t));
+  const i = Math.floor(clampedT);
+  const alpha = clampedT - i;
+
+  if (alpha === 0) return values[i] || 0;
+
+  const p0 = values[Math.max(0, i - 1)] ?? values[i] ?? 0;
+  const p1 = values[i] ?? 0;
+  const p2 = values[Math.min(n - 1, i + 1)] ?? values[i] ?? 0;
+  const p3 = values[Math.min(n - 1, i + 2)] ?? values[Math.min(n - 1, i + 1)] ?? 0;
+
+  return 0.5 * (
+    2 * p1 +
+    (-p0 + p2) * alpha +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * (alpha * alpha) +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * (alpha * alpha * alpha)
+  );
+}
+
+/**
+ * Format X-axis tick labels smoothly based on fraction u in [0, 1].
+ */
+function formatTimeLabel(u, sampledPoints) {
+  if (sampledPoints && sampledPoints.length > 0) {
+    const total = sampledPoints.length;
+    const idx = Math.min(total - 1, Math.max(0, Math.round(u * (total - 1))));
+    const timeStr = sampledPoints[idx]?.time;
+    if (timeStr) {
+      const parts = timeStr.split(' ');
+      if (parts.length > 1) {
+        return parts[1].slice(0, 5); // "HH:MM"
+      }
+      return timeStr.slice(11, 16) || timeStr.slice(0, 5);
+    }
+    return String(idx);
+  }
+  const sec = Math.round(u * 25);
+  return `${sec}s`;
+}
 
 /**
  * 1. XYZ Error Bars:
@@ -150,9 +199,10 @@ export function XYZErrorBars({ currentErrors, currentActualErrors, engineOutput,
 }
 
 /**
- * 2. Error Magnitude Chart (Static Live Plot):
+ * 2. Error Magnitude Chart (Smooth Live Spline Plot):
  * Plots the magnitude of the (True - Predicted) error vector:
  * |e_true - e_pred| = sqrt((x_true - x_pred)^2 + (y_true - y_pred)^2 + (z_true - z_pred)^2)
+ * Live curve is interpolated continuously at 60 FPS across the timeline.
  */
 export function ErrorMagnitudeChart({
   currentErrors,
@@ -168,94 +218,104 @@ export function ErrorMagnitudeChart({
   const chartRef = useRef(null);
   const [currentMag, setCurrentMag] = useState(0);
 
-  // Pre-calculate full static series and labels for |true - pred| vector
-  const { labels, allMags, maxMag } = useMemo(() => {
-    if (sampledPoints && sampledPoints.length > 1) {
-      const total = sampledPoints.length;
-      const step = Math.max(1, Math.floor(total / 7));
-      const lbls = sampledPoints.map((pt, idx) => {
-        if (idx % step === 0 || idx === total - 1) {
-          if (pt.time) {
-            const parts = pt.time.split(' ');
-            return parts[1]?.slice(0, 5) || pt.time.slice(11, 16) || `${idx}`;
-          }
-          return `${idx}`;
+  // Pre-calculate full static series with 300 spline-interpolated evaluation points
+  const { precomputedMags, maxMag } = useMemo(() => {
+    const hasSampled = sampledPoints && sampledPoints.length > 0;
+    const hasTest = testAllPoints && testAllPoints.length > 0;
+
+    const predXs = hasSampled ? sampledPoints.map((p) => p.x || 0) : [];
+    const predYs = hasSampled ? sampledPoints.map((p) => p.y || 0) : [];
+    const predZs = hasSampled ? sampledPoints.map((p) => p.z || 0) : [];
+    const totalPred = hasSampled ? sampledPoints.length : 0;
+
+    const mags = [];
+    let mx = 3.5;
+
+    for (let i = 0; i < SAMPLES; i++) {
+      const u = i / (SAMPLES - 1);
+      let predX = 0, predY = 0, predZ = 0;
+      let trueX = 0, trueY = 0, trueZ = 0;
+
+      if (hasSampled && totalPred > 1) {
+        const t = u * (totalPred - 1);
+        predX = interpolateCatmullRom1D(predXs, t);
+        predY = interpolateCatmullRom1D(predYs, t);
+        predZ = interpolateCatmullRom1D(predZs, t);
+      } else if (hasSampled && totalPred === 1) {
+        predX = predXs[0];
+        predY = predYs[0];
+        predZ = predZs[0];
+      } else {
+        const t = u * 25;
+        predX = 2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1);
+        predY = 1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8);
+        predZ = 2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5);
+      }
+
+      if (hasTest) {
+        const trueInterp = interpolateUnevenPointsByProgress(testAllPoints, u);
+        if (trueInterp) {
+          trueX = trueInterp.x || 0;
+          trueY = trueInterp.y || 0;
+          trueZ = trueInterp.z || 0;
         }
-        return '';
-      });
+      } else if (!hasSampled) {
+        const t = u * 25;
+        trueX = 1.1 * Math.cos(t * 0.65);
+        trueY = 0.8 * Math.sin(t * 0.85);
+        trueZ = 1.3 * Math.cos(t * 0.45);
+      }
 
-      const hasTrueData = testAllPoints && testAllPoints.length > 0;
-      const mags = sampledPoints.map((predPt, idx) => {
-        const u = total > 1 ? idx / (total - 1) : 0;
-        let trueX = 0;
-        let trueY = 0;
-        let trueZ = 0;
+      const dx = trueX - predX;
+      const dy = trueY - predY;
+      const dz = trueZ - predZ;
+      const mag = Math.hypot(dx, dy, dz);
+      if (mag > mx) mx = mag;
 
-        if (hasTrueData) {
-          const trueInterp = interpolateUnevenPointsByProgress(testAllPoints, u);
-          if (trueInterp) {
-            trueX = trueInterp.x || 0;
-            trueY = trueInterp.y || 0;
-            trueZ = trueInterp.z || 0;
-          }
-        }
-
-        const dx = trueX - (predPt.x || 0);
-        const dy = trueY - (predPt.y || 0);
-        const dz = trueZ - (predPt.z || 0);
-        return Math.hypot(dx, dy, dz);
-      });
-
-      const mx = Math.max(3.5, ...mags);
-      return { labels: lbls, allMags: mags, maxMag: mx };
+      mags.push({ x: u, y: mag });
     }
 
-    // Default static simulation domain across 25s loop
-    const lbls = Array.from({ length: STATIC_SIM_STEPS }, (_, i) => {
-      if (i % 10 === 0 || i === STATIC_SIM_STEPS - 1) {
-        return `${((i / (STATIC_SIM_STEPS - 1)) * 25).toFixed(0)}s`;
-      }
-      return '';
-    });
-
-    const mags = Array.from({ length: STATIC_SIM_STEPS }, (_, i) => {
-      const t = (i / (STATIC_SIM_STEPS - 1)) * 25;
-      const predX = 2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1);
-      const predY = 1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8);
-      const predZ = 2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5);
-      return Math.hypot(0 - predX, 0 - predY, 0 - predZ);
-    });
-    const mx = Math.max(3.5, ...mags);
-
-    return { labels: lbls, allMags: mags, maxMag: mx };
+    return { precomputedMags: mags, maxMag: mx };
   }, [sampledPoints, testAllPoints]);
 
-  // Initialize Chart.js with static grid
+  // Initialize Chart.js with linear scale for continuous sub-pixel live drawing
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 110);
-    gradient.addColorStop(0, 'rgba(244, 63, 94, 0.32)');
+    gradient.addColorStop(0, 'rgba(244, 63, 94, 0.35)');
     gradient.addColorStop(1, 'rgba(244, 63, 94, 0.02)');
 
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
         datasets: [
+          // 0: Live Progressive Curve with Gradient Fill
           {
             label: '|True - Predicted| Error Vector',
-            data: allMags.map(() => null),
+            data: precomputedMags.length > 0 ? [{ x: 0, y: precomputedMags[0].y }] : [],
             borderColor: '#f43f5e',
             backgroundColor: gradient,
             fill: true,
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
-            tension: 0.3,
+            tension: 0.15,
             spanGaps: false,
+          },
+          // 1: Live Active Head Marker
+          {
+            label: 'Head',
+            data: precomputedMags.length > 0 ? [{ x: 0, y: precomputedMags[0].y }] : [],
+            borderColor: '#ffffff',
+            backgroundColor: '#f43f5e',
+            borderWidth: 1.5,
+            pointRadius: 4.5,
+            pointHoverRadius: 6,
+            pointStyle: 'circle',
+            showLine: false,
           },
         ],
       },
@@ -269,15 +329,20 @@ export function ErrorMagnitudeChart({
         },
         scales: {
           x: {
-            display: true,
+            type: 'linear',
+            min: 0,
+            max: 1,
             grid: {
               color: 'rgba(59, 130, 246, 0.08)',
             },
             ticks: {
+              stepSize: 0.2,
+              maxTicksLimit: 6,
               color: '#94a3b8',
               font: { family: 'Courier New, monospace', size: 8 },
               autoSkip: false,
               maxRotation: 0,
+              callback: (val) => formatTimeLabel(val, sampledPoints),
             },
           },
           y: {
@@ -298,6 +363,7 @@ export function ErrorMagnitudeChart({
           legend: { display: false },
           tooltip: {
             enabled: true,
+            filter: (item) => item.datasetIndex === 0,
             backgroundColor: 'rgba(11, 19, 38, 0.95)',
             borderColor: 'rgba(244, 63, 94, 0.4)',
             borderWidth: 1,
@@ -305,6 +371,10 @@ export function ErrorMagnitudeChart({
             titleFont: { family: 'Courier New, monospace', size: 10 },
             bodyFont: { family: 'Courier New, monospace', size: 10 },
             callbacks: {
+              title: (items) => {
+                const u = items[0]?.parsed?.x ?? 0;
+                return formatTimeLabel(u, sampledPoints);
+              },
               label: (context) => `|True - Pred|: ${context.parsed.y.toFixed(2)} m`,
             },
           },
@@ -318,39 +388,55 @@ export function ErrorMagnitudeChart({
       chart.destroy();
       chartRef.current = null;
     };
-  }, [labels, maxMag]);
+  }, [sampledPoints]);
 
-  // Update live plotted curve across the static frame based on progress
+  // Update Y-scale limit when maxMag changes
   useEffect(() => {
-    if (!allMags.length) return;
+    if (chartRef.current) {
+      chartRef.current.options.scales.y.suggestedMax = Math.ceil(maxMag * 1.15);
+    }
+  }, [maxMag]);
 
-    const total = allMags.length;
+  // Continuously interpolate live plotted curve across the timeline
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (!precomputedMags.length) return;
+
     const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    const activeIdx = Math.min(total - 1, Math.floor(safeProg * (total - 1)));
 
-    let activeVal = allMags[activeIdx] ?? 0;
+    let activeVal = 0;
     if (currentErrors && currentErrors.x != null) {
       const tx = currentActualErrors?.x || 0;
       const ty = currentActualErrors?.y || 0;
       const tz = currentActualErrors?.z || 0;
       activeVal = Math.hypot(tx - (currentErrors.x || 0), ty - (currentErrors.y || 0), tz - (currentErrors.z || 0));
+    } else {
+      const f = safeProg * (SAMPLES - 1);
+      const lower = Math.floor(f);
+      const upper = Math.min(SAMPLES - 1, lower + 1);
+      const alpha = f - lower;
+      const y1 = precomputedMags[lower]?.y ?? 0;
+      const y2 = precomputedMags[upper]?.y ?? y1;
+      activeVal = y1 + (y2 - y1) * alpha;
     }
 
     setCurrentMag(activeVal);
 
-    const progressiveData = allMags.map((v, idx) => (idx <= activeIdx ? v : null));
-
-    if (chartRef.current) {
-      chartRef.current.data.datasets[0].data = progressiveData;
-      chartRef.current.data.datasets[0].pointRadius = (ctx) =>
-        ctx.dataIndex === activeIdx ? 4 : 0;
-      chartRef.current.data.datasets[0].pointBackgroundColor = '#f43f5e';
-      chartRef.current.data.datasets[0].pointBorderColor = '#ffffff';
-      chartRef.current.data.datasets[0].pointBorderWidth = 1.5;
-
-      chartRef.current.update('none');
+    // Smooth slice + exact continuous live head point
+    const cutoff = Math.min(SAMPLES - 1, Math.floor(safeProg * (SAMPLES - 1)));
+    const slice = precomputedMags.slice(0, cutoff + 1);
+    let progressiveData;
+    if (slice.length > 0 && Math.abs(slice[slice.length - 1].x - safeProg) < 0.0005) {
+      progressiveData = slice;
+    } else {
+      progressiveData = [...slice, { x: safeProg, y: activeVal }];
     }
-  }, [progress, allMags, currentErrors, currentActualErrors]);
+
+    chart.data.datasets[0].data = progressiveData;
+    chart.data.datasets[1].data = [{ x: safeProg, y: activeVal }];
+    chart.update('none');
+  }, [progress, precomputedMags, currentErrors, currentActualErrors]);
 
   return (
     <div className="panel2-chart-container" aria-label="Error vector magnitude chart">
@@ -359,6 +445,9 @@ export function ErrorMagnitudeChart({
         <div className="panel2-chart-values">
           <span style={{ color: '#f43f5e', fontWeight: 'bold' }}>
             |e_true - e_pred|: {currentMag.toFixed(2)}m
+          </span>
+          <span style={{ color: '#94a3b8' }}>
+            {Math.round(progress * 100)}%
           </span>
         </div>
       </div>
@@ -370,8 +459,8 @@ export function ErrorMagnitudeChart({
 }
 
 /**
- * 3. XYZ Error Components Chart (Static Live Plot fallback):
- * 3 lines plotting live across static coordinate grid.
+ * 3. XYZ Error Components Chart (Smooth Live Spline Plot fallback):
+ * 3 lines plotting live across static coordinate grid with smooth interpolation.
  */
 export function XYZErrorChart({
   currentErrors,
@@ -385,40 +474,48 @@ export function XYZErrorChart({
   const chartRef = useRef(null);
   const [currentVals, setCurrentVals] = useState({ x: 0, y: 0, z: 0 });
 
-  const { labels, series, maxVal } = useMemo(() => {
-    if (sampledPoints && sampledPoints.length > 1) {
-      const total = sampledPoints.length;
-      const step = Math.max(1, Math.floor(total / 7));
-      const lbls = sampledPoints.map((pt, idx) => {
-        if (idx % step === 0 || idx === total - 1) {
-          return pt.time?.slice(11, 16) || `${idx}`;
-        }
-        return '';
-      });
+  const { precomputedSeries, maxVal } = useMemo(() => {
+    const hasSampled = sampledPoints && sampledPoints.length > 0;
+    const xs = hasSampled ? sampledPoints.map((p) => p.x || 0) : [];
+    const ys = hasSampled ? sampledPoints.map((p) => p.y || 0) : [];
+    const zs = hasSampled ? sampledPoints.map((p) => p.z || 0) : [];
+    const total = hasSampled ? sampledPoints.length : 0;
 
-      const xs = sampledPoints.map((pt) => pt.x || 0);
-      const ys = sampledPoints.map((pt) => pt.y || 0);
-      const zs = sampledPoints.map((pt) => pt.z || 0);
-      const mx = Math.max(3, ...xs.map(Math.abs), ...ys.map(Math.abs), ...zs.map(Math.abs));
+    const xPts = [];
+    const yPts = [];
+    const zPts = [];
+    let mx = 3.5;
 
-      return { labels: lbls, series: { x: xs, y: ys, z: zs }, maxVal: mx };
+    for (let i = 0; i < SAMPLES; i++) {
+      const u = i / (SAMPLES - 1);
+      let x = 0, y = 0, z = 0;
+
+      if (hasSampled && total > 1) {
+        const t = u * (total - 1);
+        x = interpolateCatmullRom1D(xs, t);
+        y = interpolateCatmullRom1D(ys, t);
+        z = interpolateCatmullRom1D(zs, t);
+      } else if (hasSampled && total === 1) {
+        x = xs[0];
+        y = ys[0];
+        z = zs[0];
+      } else {
+        const t = u * 25;
+        x = 2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1);
+        y = 1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8);
+        z = 2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5);
+      }
+
+      if (Math.abs(x) > mx) mx = Math.abs(x);
+      if (Math.abs(y) > mx) mx = Math.abs(y);
+      if (Math.abs(z) > mx) mx = Math.abs(z);
+
+      xPts.push({ x: u, y: x });
+      yPts.push({ x: u, y: y });
+      zPts.push({ x: u, y: z });
     }
 
-    const lbls = Array.from({ length: STATIC_SIM_STEPS }, (_, i) =>
-      i % 10 === 0 || i === STATIC_SIM_STEPS - 1 ? `${((i / (STATIC_SIM_STEPS - 1)) * 25).toFixed(0)}s` : '',
-    );
-    const xs = [];
-    const ys = [];
-    const zs = [];
-    for (let i = 0; i < STATIC_SIM_STEPS; i++) {
-      const t = (i / (STATIC_SIM_STEPS - 1)) * 25;
-      xs.push(2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1));
-      ys.push(1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8));
-      zs.push(2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5));
-    }
-    const mx = Math.max(3, ...xs.map(Math.abs), ...ys.map(Math.abs), ...zs.map(Math.abs));
-
-    return { labels: lbls, series: { x: xs, y: ys, z: zs }, maxVal: mx };
+    return { precomputedSeries: { x: xPts, y: yPts, z: zPts }, maxVal: mx };
   }, [sampledPoints]);
 
   useEffect(() => {
@@ -429,36 +526,35 @@ export function XYZErrorChart({
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
         datasets: [
           {
             label: 'X Error',
-            data: series.x.map(() => null),
+            data: precomputedSeries.x.length > 0 ? [{ x: 0, y: precomputedSeries.x[0].y }] : [],
             borderColor: '#00ff88',
             backgroundColor: 'transparent',
             borderWidth: 1.8,
             pointRadius: 0,
-            tension: 0.3,
+            tension: 0.15,
             spanGaps: false,
           },
           {
             label: 'Y Error',
-            data: series.y.map(() => null),
+            data: precomputedSeries.y.length > 0 ? [{ x: 0, y: precomputedSeries.y[0].y }] : [],
             borderColor: '#f59e0b',
             backgroundColor: 'transparent',
             borderWidth: 1.8,
             pointRadius: 0,
-            tension: 0.3,
+            tension: 0.15,
             spanGaps: false,
           },
           {
             label: 'Z Error',
-            data: series.z.map(() => null),
+            data: precomputedSeries.z.length > 0 ? [{ x: 0, y: precomputedSeries.z[0].y }] : [],
             borderColor: '#38bdf8',
             backgroundColor: 'transparent',
             borderWidth: 1.8,
             pointRadius: 0,
-            tension: 0.3,
+            tension: 0.15,
             spanGaps: false,
           },
         ],
@@ -469,9 +565,19 @@ export function XYZErrorChart({
         animation: false,
         scales: {
           x: {
-            display: true,
-            grid: { color: 'rgba(59, 130, 246, 0.12)' },
-            ticks: { color: '#94a3b8', font: { family: 'Courier New, monospace', size: 8 } },
+            type: 'linear',
+            min: 0,
+            max: 1,
+            grid: { color: 'rgba(59, 130, 246, 0.08)' },
+            ticks: {
+              stepSize: 0.2,
+              maxTicksLimit: 6,
+              color: '#94a3b8',
+              font: { family: 'Courier New, monospace', size: 8 },
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (val) => formatTimeLabel(val, sampledPoints),
+            },
           },
           y: {
             suggestedMin: -Math.ceil(maxVal * 1.1),
@@ -490,6 +596,13 @@ export function XYZErrorChart({
             titleColor: '#38bdf8',
             titleFont: { family: 'Courier New, monospace', size: 10 },
             bodyFont: { family: 'Courier New, monospace', size: 10 },
+            callbacks: {
+              title: (items) => {
+                const u = items[0]?.parsed?.x ?? 0;
+                return formatTimeLabel(u, sampledPoints);
+              },
+              label: (context) => `${context.dataset.label}: ${context.parsed.y >= 0 ? '+' : ''}${context.parsed.y.toFixed(2)} m`,
+            },
           },
         },
       },
@@ -501,27 +614,49 @@ export function XYZErrorChart({
       chart.destroy();
       chartRef.current = null;
     };
-  }, [labels, series, maxVal]);
+  }, [sampledPoints]);
 
   useEffect(() => {
-    if (!series.x.length) return;
-    const total = series.x.length;
-    const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    const activeIdx = Math.min(total - 1, Math.floor(safeProg * (total - 1)));
-
-    setCurrentVals({
-      x: series.x[activeIdx] ?? 0,
-      y: series.y[activeIdx] ?? 0,
-      z: series.z[activeIdx] ?? 0,
-    });
-
     if (chartRef.current) {
-      chartRef.current.data.datasets[0].data = series.x.map((v, i) => (i <= activeIdx ? v : null));
-      chartRef.current.data.datasets[1].data = series.y.map((v, i) => (i <= activeIdx ? v : null));
-      chartRef.current.data.datasets[2].data = series.z.map((v, i) => (i <= activeIdx ? v : null));
-      chartRef.current.update('none');
+      chartRef.current.options.scales.y.suggestedMin = -Math.ceil(maxVal * 1.1);
+      chartRef.current.options.scales.y.suggestedMax = Math.ceil(maxVal * 1.1);
     }
-  }, [progress, series]);
+  }, [maxVal]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (!precomputedSeries.x.length) return;
+
+    const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+
+    let curX = 0, curY = 0, curZ = 0;
+    if (currentErrors && currentErrors.x != null) {
+      curX = currentErrors.x || 0;
+      curY = currentErrors.y || 0;
+      curZ = currentErrors.z || 0;
+    } else {
+      const f = safeProg * (SAMPLES - 1);
+      const lower = Math.floor(f);
+      const upper = Math.min(SAMPLES - 1, lower + 1);
+      const alpha = f - lower;
+      curX = precomputedSeries.x[lower].y + (precomputedSeries.x[upper].y - precomputedSeries.x[lower].y) * alpha;
+      curY = precomputedSeries.y[lower].y + (precomputedSeries.y[upper].y - precomputedSeries.y[lower].y) * alpha;
+      curZ = precomputedSeries.z[lower].y + (precomputedSeries.z[upper].y - precomputedSeries.z[lower].y) * alpha;
+    }
+
+    setCurrentVals({ x: curX, y: curY, z: curZ });
+
+    const cutoff = Math.min(SAMPLES - 1, Math.floor(safeProg * (SAMPLES - 1)));
+    const sliceX = precomputedSeries.x.slice(0, cutoff + 1);
+    const sliceY = precomputedSeries.y.slice(0, cutoff + 1);
+    const sliceZ = precomputedSeries.z.slice(0, cutoff + 1);
+
+    chart.data.datasets[0].data = [...sliceX, { x: safeProg, y: curX }];
+    chart.data.datasets[1].data = [...sliceY, { x: safeProg, y: curY }];
+    chart.data.datasets[2].data = [...sliceZ, { x: safeProg, y: curZ }];
+    chart.update('none');
+  }, [progress, precomputedSeries, currentErrors]);
 
   return (
     <div className="panel2-chart-container" aria-label="X Y Z Error components chart">
@@ -545,9 +680,7 @@ export function XYZErrorChart({
  * 2 live bars:
  * - Bar 1: Red circle radius (Pre-correction / rawDeviationOffset)
  * - Bar 2: Corrected circle radius (Post-correction / correctedDeviationOffset)
- * 
- * Upper bound is fixed to the maximum radius that can occur at any point in the timeline.
- * Precalculated arrays are used throughout the timeline.
+ * Smooth continuous linear interpolation between timeline keyframes.
  */
 export function TriangulationRadiiBars({
   engineOutput,
@@ -662,16 +795,19 @@ export function TriangulationRadiiBars({
     };
   }, [upperBound]);
 
-  // Update bars throughout the timeline using the precalculated arrays
+  // Continuously interpolate radii between timeline keyframes
   useEffect(() => {
     if (!redRadii.length || !corrRadii.length) return;
 
     const total = redRadii.length;
     const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    const index = Math.min(total - 1, Math.max(0, Math.floor(safeProg * (total - 1))));
+    const floatIdx = safeProg * (total - 1);
+    const lower = Math.min(total - 1, Math.floor(floatIdx));
+    const upper = Math.min(total - 1, lower + 1);
+    const alpha = floatIdx - lower;
 
-    const redR = redRadii[index];
-    const corrR = corrRadii[index];
+    const redR = (redRadii[lower] ?? 0) + ((redRadii[upper] ?? redRadii[lower] ?? 0) - (redRadii[lower] ?? 0)) * alpha;
+    const corrR = (corrRadii[lower] ?? 0) + ((corrRadii[upper] ?? corrRadii[lower] ?? 0) - (corrRadii[lower] ?? 0)) * alpha;
 
     setRadii({ redRadius: redR, corrRadius: corrR });
 
@@ -705,9 +841,10 @@ export function TriangulationRadiiBars({
 }
 
 /**
- * 4. Dual Error Magnitudes Chart (First lower box):
+ * 5. Dual Error Magnitudes Chart (First lower box):
  * Plots both True Error Magnitude (|e_true|) and Predicted Error Magnitude (|e_pred|),
  * shading the difference between the two curves with transparent orange.
+ * Smooth Catmull-Rom spline interpolation and continuous 60 FPS live plotting.
  */
 export function NoisySinWaveChart({
   currentErrors,
@@ -724,70 +861,68 @@ export function NoisySinWaveChart({
   const [currentActMag, setCurrentActMag] = useState(0);
   const [currentPredMag, setCurrentPredMag] = useState(0);
 
-  // Precalculate static series for both error magnitudes
-  const { labels, predMags, actMags, maxMag } = useMemo(() => {
-    if (sampledPoints && sampledPoints.length > 1) {
-      const total = sampledPoints.length;
-      const step = Math.max(1, Math.floor(total / 7));
-      const lbls = sampledPoints.map((pt, idx) => {
-        if (idx % step === 0 || idx === total - 1) {
-          if (pt.time) {
-            const parts = pt.time.split(' ');
-            return parts[1]?.slice(0, 5) || pt.time.slice(11, 16) || `${idx}`;
-          }
-          return `${idx}`;
-        }
-        return '';
-      });
+  // Pre-calculate 300 spline-interpolated points for both error magnitudes
+  const { predCurve, actCurve, maxMag } = useMemo(() => {
+    const hasSampled = sampledPoints && sampledPoints.length > 0;
+    const hasTest = testAllPoints && testAllPoints.length > 0;
 
-      const hasTrue = testAllPoints && testAllPoints.length > 0;
-      const pMags = [];
-      const aMags = [];
+    const predXs = hasSampled ? sampledPoints.map((p) => p.x || 0) : [];
+    const predYs = hasSampled ? sampledPoints.map((p) => p.y || 0) : [];
+    const predZs = hasSampled ? sampledPoints.map((p) => p.z || 0) : [];
+    const totalPred = hasSampled ? sampledPoints.length : 0;
 
-      for (let i = 0; i < total; i++) {
-        const u = total > 1 ? i / (total - 1) : 0;
-        const pt = sampledPoints[i];
-        const pm = Math.hypot(pt.x || 0, pt.y || 0, pt.z || 0);
-        pMags.push(pm);
+    const pCurve = [];
+    const aCurve = [];
+    let mx = 3.5;
 
-        let am = 0;
-        if (hasTrue) {
-          const tPt = interpolateUnevenPointsByProgress(testAllPoints, u);
-          if (tPt) {
-            am = Math.hypot(tPt.x || 0, tPt.y || 0, tPt.z || 0);
-          }
-        }
-        aMags.push(am);
+    for (let i = 0; i < SAMPLES; i++) {
+      const u = i / (SAMPLES - 1);
+      let predX = 0, predY = 0, predZ = 0;
+      let trueX = 0, trueY = 0, trueZ = 0;
+
+      if (hasSampled && totalPred > 1) {
+        const t = u * (totalPred - 1);
+        predX = interpolateCatmullRom1D(predXs, t);
+        predY = interpolateCatmullRom1D(predYs, t);
+        predZ = interpolateCatmullRom1D(predZs, t);
+      } else if (hasSampled && totalPred === 1) {
+        predX = predXs[0];
+        predY = predYs[0];
+        predZ = predZs[0];
+      } else {
+        const t = u * 25;
+        predX = 2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1);
+        predY = 1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8);
+        predZ = 2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5);
       }
 
-      const mx = Math.max(3.5, ...pMags, ...aMags);
-      return { labels: lbls, predMags: pMags, actMags: aMags, maxMag: mx };
-    }
-
-    // Default static simulation domain across 25s loop
-    const lbls = Array.from({ length: STATIC_SIM_STEPS }, (_, i) => {
-      if (i % 10 === 0 || i === STATIC_SIM_STEPS - 1) {
-        return `${((i / (STATIC_SIM_STEPS - 1)) * 25).toFixed(0)}s`;
+      if (hasTest) {
+        const trueInterp = interpolateUnevenPointsByProgress(testAllPoints, u);
+        if (trueInterp) {
+          trueX = trueInterp.x || 0;
+          trueY = trueInterp.y || 0;
+          trueZ = trueInterp.z || 0;
+        }
+      } else if (!hasSampled) {
+        const t = u * 25;
+        trueX = 1.1 * Math.cos(t * 0.65);
+        trueY = 0.8 * Math.sin(t * 0.85);
+        trueZ = 1.3 * Math.cos(t * 0.45);
       }
-      return '';
-    });
 
-    const pMags = [];
-    const aMags = [];
-    for (let i = 0; i < STATIC_SIM_STEPS; i++) {
-      const t = (i / (STATIC_SIM_STEPS - 1)) * 25;
-      const px = 2.2 * Math.sin(t * 0.9) + 0.3 * Math.cos(t * 2.1);
-      const py = 1.7 * Math.cos(t * 0.7) + 0.2 * Math.sin(t * 1.8);
-      const pz = 2.8 * Math.sin(t * 0.5 + 1.1) + 0.4 * Math.cos(t * 1.5);
-      pMags.push(Math.hypot(px, py, pz));
-      aMags.push(1.4 + 0.5 * Math.sin(t * 0.7 + 0.5));
+      const pm = Math.hypot(predX, predY, predZ);
+      const am = Math.hypot(trueX, trueY, trueZ);
+      if (pm > mx) mx = pm;
+      if (am > mx) mx = am;
+
+      pCurve.push({ x: u, y: pm });
+      aCurve.push({ x: u, y: am });
     }
-    const mx = Math.max(3.5, ...pMags, ...aMags);
 
-    return { labels: lbls, predMags: pMags, actMags: aMags, maxMag: mx };
+    return { predCurve: pCurve, actCurve: aCurve, maxMag: mx };
   }, [sampledPoints, testAllPoints]);
 
-  // Initialize Chart.js with both curves and shaded difference between them
+  // Initialize Chart.js with linear continuous scale & differential shading fill
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -796,42 +931,41 @@ export function NoisySinWaveChart({
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels,
         datasets: [
-          // 0: Predicted Error Magnitude
+          // 0: Predicted Error Magnitude (Continuous Live Spline)
           {
             label: 'Predicted Magnitude |e_pred|',
-            data: predMags.map(() => null),
+            data: predCurve.length > 0 ? [{ x: 0, y: predCurve[0].y }] : [],
             borderColor: '#ef4444',
-            backgroundColor: 'rgba(234, 88, 12, 0.25)', // Dull transparent orange fill between the two
+            backgroundColor: 'rgba(234, 88, 12, 0.25)', // Dull transparent orange fill
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
-            tension: 0.2,
+            tension: 0.15,
             spanGaps: false,
             fill: {
-              target: 1, // Strictly fill between Dataset 0 (Predicted) and Dataset 1 (True)
+              target: 1, // Fill strictly between Dataset 0 (Predicted) and Dataset 1 (True)
               above: 'rgba(234, 88, 12, 0.25)',
               below: 'rgba(234, 88, 12, 0.25)',
             },
           },
-          // 1: True Error Magnitude
+          // 1: True Error Magnitude (Continuous Live Spline)
           {
             label: 'True Magnitude |e_true|',
-            data: actMags.map(() => null),
+            data: actCurve.length > 0 ? [{ x: 0, y: actCurve[0].y }] : [],
             borderColor: '#10b981',
             backgroundColor: 'transparent',
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 4,
-            tension: 0.2,
+            tension: 0.15,
             spanGaps: false,
             fill: false,
           },
           // 2: Predicted Active Head Marker
           {
             label: 'Predicted Head',
-            data: [{ x: labels[0] || '', y: 0 }],
+            data: predCurve.length > 0 ? [{ x: 0, y: predCurve[0].y }] : [],
             borderColor: '#ffffff',
             backgroundColor: '#ef4444',
             borderWidth: 1.5,
@@ -843,7 +977,7 @@ export function NoisySinWaveChart({
           // 3: True Active Head Marker
           {
             label: 'True Head',
-            data: [{ x: labels[0] || '', y: 0 }],
+            data: actCurve.length > 0 ? [{ x: 0, y: actCurve[0].y }] : [],
             borderColor: '#ffffff',
             backgroundColor: '#10b981',
             borderWidth: 1.5,
@@ -864,15 +998,20 @@ export function NoisySinWaveChart({
         },
         scales: {
           x: {
-            display: true,
+            type: 'linear',
+            min: 0,
+            max: 1,
             grid: {
               color: 'rgba(59, 130, 246, 0.08)',
             },
             ticks: {
+              stepSize: 0.2,
+              maxTicksLimit: 6,
               color: '#94a3b8',
               font: { family: 'Courier New, monospace', size: 8 },
               autoSkip: false,
               maxRotation: 0,
+              callback: (val) => formatTimeLabel(val, sampledPoints),
             },
           },
           y: {
@@ -893,6 +1032,7 @@ export function NoisySinWaveChart({
           legend: { display: false },
           tooltip: {
             enabled: true,
+            filter: (item) => item.datasetIndex <= 1,
             backgroundColor: 'rgba(11, 19, 38, 0.95)',
             borderColor: 'rgba(59, 130, 246, 0.4)',
             borderWidth: 1,
@@ -900,6 +1040,10 @@ export function NoisySinWaveChart({
             titleFont: { family: 'Courier New, monospace', size: 10 },
             bodyFont: { family: 'Courier New, monospace', size: 10 },
             callbacks: {
+              title: (items) => {
+                const u = items[0]?.parsed?.x ?? 0;
+                return formatTimeLabel(u, sampledPoints);
+              },
               label: (context) => {
                 if (context.datasetIndex === 0) return `Pred: ${context.parsed.y.toFixed(2)} m`;
                 if (context.datasetIndex === 1) return `True: ${context.parsed.y.toFixed(2)} m`;
@@ -917,43 +1061,74 @@ export function NoisySinWaveChart({
       chart.destroy();
       chartRef.current = null;
     };
-  }, [labels, maxMag]);
+  }, [sampledPoints]);
 
-  // Live progressive plotting across the static frame
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.options.scales.y.suggestedMax = Math.ceil(maxMag * 1.15);
+    }
+  }, [maxMag]);
+
+  // Live progressive plotting continuously across the static frame
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    if (!predMags.length) return;
+    if (!predCurve.length) return;
 
-    const total = predMags.length;
     const safeProg = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    const activeIdx = Math.min(total - 1, Math.floor(safeProg * (total - 1)));
 
-    let curP = predMags[activeIdx] ?? 0;
-    let curA = actMags[activeIdx] ?? 0;
+    let curP = 0;
+    let curA = 0;
 
     if (currentErrors && currentErrors.x != null) {
       curP = Math.hypot(currentErrors.x || 0, currentErrors.y || 0, currentErrors.z || 0);
+    } else {
+      const f = safeProg * (SAMPLES - 1);
+      const lower = Math.floor(f);
+      const upper = Math.min(SAMPLES - 1, lower + 1);
+      const alpha = f - lower;
+      const y1 = predCurve[lower]?.y ?? 0;
+      const y2 = predCurve[upper]?.y ?? y1;
+      curP = y1 + (y2 - y1) * alpha;
     }
+
     if (currentActualErrors && currentActualErrors.x != null) {
       curA = Math.hypot(currentActualErrors.x || 0, currentActualErrors.y || 0, currentActualErrors.z || 0);
+    } else {
+      const f = safeProg * (SAMPLES - 1);
+      const lower = Math.floor(f);
+      const upper = Math.min(SAMPLES - 1, lower + 1);
+      const alpha = f - lower;
+      const y1 = actCurve[lower]?.y ?? 0;
+      const y2 = actCurve[upper]?.y ?? y1;
+      curA = y1 + (y2 - y1) * alpha;
     }
 
     setCurrentPredMag(curP);
     setCurrentActMag(curA);
 
-    const progressivePred = predMags.map((v, idx) => (idx <= activeIdx ? v : null));
-    const progressiveAct = actMags.map((v, idx) => (idx <= activeIdx ? v : null));
+    const cutoff = Math.min(SAMPLES - 1, Math.floor(safeProg * (SAMPLES - 1)));
+    const sliceP = predCurve.slice(0, cutoff + 1);
+    const sliceA = actCurve.slice(0, cutoff + 1);
+
+    let progressivePred;
+    let progressiveAct;
+
+    if (sliceP.length > 0 && Math.abs(sliceP[sliceP.length - 1].x - safeProg) < 0.0005) {
+      progressivePred = sliceP;
+      progressiveAct = sliceA;
+    } else {
+      progressivePred = [...sliceP, { x: safeProg, y: curP }];
+      progressiveAct = [...sliceA, { x: safeProg, y: curA }];
+    }
 
     chart.data.datasets[0].data = progressivePred;
     chart.data.datasets[1].data = progressiveAct;
-
-    // Active head markers
-    chart.data.datasets[2].data = progressivePred[activeIdx] != null ? [{ x: labels[activeIdx], y: curP }] : [];
-    chart.data.datasets[3].data = progressiveAct[activeIdx] != null ? [{ x: labels[activeIdx], y: curA }] : [];
+    chart.data.datasets[2].data = [{ x: safeProg, y: curP }];
+    chart.data.datasets[3].data = [{ x: safeProg, y: curA }];
 
     chart.update('none');
-  }, [progress, predMags, actMags, currentErrors, currentActualErrors, labels]);
+  }, [progress, predCurve, actCurve, currentErrors, currentActualErrors]);
 
   const diffMag = Math.abs(currentActMag - currentPredMag);
 
@@ -984,4 +1159,5 @@ export function NoisySinWaveChart({
 }
 
 export const DualErrorMagnitudeChart = NoisySinWaveChart;
+
 
